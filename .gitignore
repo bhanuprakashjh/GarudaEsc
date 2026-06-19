@@ -1,0 +1,11 @@
+# MPLAB X build artifacts
+build/
+dist/
+.generated_files/
+*.o
+*.d
+*.elf
+*.map
+debug/
+disassembly/
+funcinfo.xml
