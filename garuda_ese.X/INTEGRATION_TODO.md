@@ -52,13 +52,27 @@ BEMF channels. Remaining options to add behind `BEMF_ZC_SOURCE` (porting plan §
 - Neutral model for Z2/Z3: N1 `(Vu+Vv+Vw)/3` (now valid — simultaneous sample) /
   N2 Vbus·duty / N3 external `BEMF_N` (AD5CH1).
 
-## 3. PWM polarity / dead-time — `hal/hal_pwm.c`
-- Set high-side **active-LOW** for the ATA NBH inputs: `PGxIOCONbits.POLH = 1`
-  (low-side POLL=0). Verify in `InitPWMGenerators`.
-- **Dead-time → ~0** (ATA applies internal tCC). Zero/​minimize `PGxDTH/PGxDTL`.
+## 3. PWM polarity / dead-time — `hal/hal_pwm.c`  ✅ DONE (POLH + IOCON2 override re-encode)
+- **POLH = 1** set on PG1/PG2/PG3 in `InitPWMGenerator1/2/3` → high-side **active-LOW**
+  for the ATA6847 INH inputs (POLL = 0, LS active-high). POLH inverts only the final H
+  pin, **after** the override mux, so the override DATA encoding is unchanged from a
+  non-inverted board — verified against the bench-proven `garuda-ak-ata-esc` ATA6847
+  driver (same active-low-H gate driver).
+- **IOCON1/IOCON2 split re-encoded.** The AK256MC506 splits the old combined `PGxIOCON`
+  into `PGxIOCON1` (PENH/PENL/POLH/POLL/PMOD — set once at init) and `PGxIOCON2`
+  (override/fault data — written every commutation). The precomputed `PG_IOCON_*` words
+  + `pgIoconWord()` were re-mapped to the **IOCON2** field positions
+  (`OVRENH=bit21`, `OVRENL=bit20`, `OVRDAT=bits[13:12]`); PENH/PENL are no longer in the
+  per-commutation word (they live in IOCON1). This was the "writes IOCON2 to compile"
+  TODO — the bit pattern is now correct, not just link-clean.
+- **Dead-time kept** (NOT zeroed). The proven ATA reference runs a small MCU dead-time
+  (~100 ns) **alongside** the ATA's internal dead-time, and `MIN_DUTY = 2×DEADTIME_COUNTS`
+  depends on it — zeroing it would collapse `MIN_DUTY`. Per-profile `DEADTIME_NS`
+  (300–750 ns) stays; this is a tuning value, not a correctness bug.
 - Pins are unchanged (RD2/RD3, RD0/RD1, RC3/RC4 = PG1/2/3) — already in `port_config.c`.
-- Verify `ChargeBootstrapCapacitors()` is still appropriate (ATA uses an internal
-  charge pump for the high side — bootstrap pre-charge may be unnecessary).
+- **Bring-up still to verify on silicon:** scope the H/L pins per sector against the
+  commutation table; confirm `ChargeBootstrapCapacitors()` behaviour (ATA may use an
+  internal charge pump for the high side, making bootstrap pre-charge unnecessary).
 
 ## 4. Overcurrent / protection
 - `FEATURE_HW_OVERCURRENT` OFF (the 512 OA3/CMP3 bus path doesn't exist here).
@@ -80,8 +94,17 @@ constants 6-step needs (λ/Ke, pole-pairs) live in the profile, not the FOC algo
 `nbproject/configurations.xml` regenerated for the real tree — **53 source + 65 header
 files** across all folders (incl. foc/, dormant), device **dsPIC33AK256MC506**, toolchain
 XCDSC, include dirs `hal;motor;gsp;learn;input;scope;x2cscope;foc;.`, project name
-`garuda_ese`. Stale auto-generated `Makefile-*.mk` were removed — **MPLAB X regenerates
-them from configurations.xml on first open** (open the project, then Build).
+`garuda_ese`. The root `Makefile` + `nbproject/Makefile-*.mk` are now committed so the
+project builds headless (`make CONF=default`) **and** opens/builds in MPLAB X (which
+regenerates them from `configurations.xml`). Verified: full `make` → `.elf` → `.hex`
+with **0 errors, 0 implicit-declaration warnings**, program **67,844 B (25%)**, data
+**6,602 B (10%)** on XC-DSC v3.30 / DFP 1.4.172.
+
+Fixed this pass: `hal/board_service.c` included `hal_spi.h` / `hal_ata6847.h` /
+`port_config.h` only under `#if (FEATURE_HW_OVERCURRENT || FOC...)`, but
+`HAL_InitPeripherals()` calls `HAL_SPI_Init`/`HAL_ATA6847_*` **unconditionally** — so in
+the 6-step build they compiled with implicit `int` prototypes (wrong on a 16-bit target).
+Those includes are now unconditional (they are core to this board).
 
 ### Build-config verification (this pass)
 - `FEATURE_ADC_CMP_ZC=0`, `FEATURE_HW_OVERCURRENT=0` — verified **consistent**: every

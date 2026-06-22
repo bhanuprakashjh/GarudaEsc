@@ -1,13 +1,14 @@
 /**
  * @file hal_adc.h
  *
- * @brief ADC module definitions for phase voltage sensing, Vbus, and potentiometer.
- * Adapted from AN1292 reference:
- *   - Keeps: Vbus (AD1CH4), Pot (AD1CH1), PWM trigger source
- *   - Removes: Current sense channels (IA, IB, IBUS)
- *   - Adds: Phase B on AD1CH0 (RB8), Phase A/C on AD2CH0 (RB9/RA10, muxed)
+ * @brief ADC module definitions — GarudaESE: phase + bus current sense, 3 BEMF
+ * phases (dedicated cores, no mux), virtual neutral, Vbus, temp.
+ *   - Current sense: Iu/Iv via dsPIC OA1/OA2 (AD1AN0/AD2AN0); Iw/Ibus via the
+ *     ATA6847 op-amps into AD3AN0/AD4AN0. All four read by the dsPIC ADC.
+ *   - BEMF: U/V/W dividers on dedicated cores (AD3CH0/AD2CH1/AD5CH0) sampled
+ *     simultaneously — no Phase-A/C mux, no settle penalty (unlike the MCLV base).
  *
- * Definitions in this file are for dsPIC33AK128MC106
+ * Definitions in this file are for dsPIC33AK256MC506 (GarudaESE)
  *
  * Component: ADC
  */
@@ -51,10 +52,11 @@ extern "C" {
  * ===================================================================*/
 
 /* Phase-current op-amp outputs (also the 6-step monitor channels) */
-#define ADCBUF_IA           (uint16_t)AD1CH0DATA   /* Iu */
-#define ADCBUF_IB           (uint16_t)AD2CH0DATA   /* Iv */
+#define ADCBUF_IA           (uint16_t)AD1CH0DATA   /* Iu — dsPIC OA1 */
+#define ADCBUF_IB           (uint16_t)AD2CH0DATA   /* Iv — dsPIC OA2 */
 #define ADCBUF_IA_MON       (uint16_t)AD1CH0DATA
 #define ADCBUF_IB_MON       (uint16_t)AD2CH0DATA
+#define ADCBUF_IW           (uint16_t)AD3CH3DATA   /* Iw — ATA6847 op-amp → AD3AN0 (real, not computed) */
 
 /* Dedicated BEMF channels (divider analog ZC: options Z2/Z3) */
 #define ADCBUF_BEMF_U       (uint16_t)AD3CH0DATA
@@ -63,8 +65,15 @@ extern "C" {
 #define ADCBUF_BEMF_N       (uint16_t)AD5CH1DATA
 
 #define ADCBUF_VBUS         (uint16_t)AD5CH2DATA
-#define ADCBUF_POT          (uint16_t)AD3CH2DATA   /* Speed (reserved/unrouted) */
+#define ADCBUF_POT          (uint16_t)AD3CH2DATA   /* Speed/POT = RA6/AD3AN2, test point TP5
+                                                    * (schematic; xlsx wrongly lists RA8). Throttle
+                                                    * input when FEATURE_ADC_POT=1. */
 #define ADCBUF_TEMP         (uint16_t)AD3CH1DATA
+
+/* DC-bus current: the bus shunt (R57, 2 mΩ) is amplified by the ATA6847 op-amp
+ * (IBUS_OA_OUT) into RB4 = AD4AN0 — a real measurement (NOT the old "no bus"
+ * stub). Scaling differs from the dsPIC-OA phase channels (ATA gain ≈ 16). */
+#define ADCBUF_IBUS         (uint16_t)AD4CH0DATA
 
 /* Phase B completion (AD1CH0) is the ADC interrupt source */
 #define GARUDA_EnableADCInterrupt()     _AD1CH0IE = 1

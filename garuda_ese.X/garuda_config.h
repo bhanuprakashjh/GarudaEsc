@@ -123,6 +123,23 @@ extern "C" {
                                     * window (~0.17A). A rotor still spinning
                                     * down puts regen ripple on the bus that
                                     * fails this → retry until quiescent. */
+
+/* ── Software phase-current overcurrent (GarudaESE 6-step) ──────────────────
+ * GarudaESE has NO dsPIC bus-current sense, and the legacy SW/HW OC paths are
+ * compiled out by FEATURE_HW_OVERCURRENT=0 — so this Iu/Iv deviation trip is
+ * the ONLY firmware current protection. It is ALWAYS active in the 6-step
+ * build (independent of FEATURE_HW_OVERCURRENT / FOC). The zero-current bias
+ * of the OA1/OA2 phase channels is auto-tracked while the bridge is off
+ * (IDLE/ARMED); the trip is on |ia−bias| or |ib−bias| in ADC counts.
+ *   ** TUNE ON BENCH **: counts/amp on this board is not characterised yet.
+ *   Read iaRaw/ibRaw telemetry at a known current, then set the trip below
+ *   sense saturation. Default is conservative (catches a hard runaway near
+ *   the rail); the bench PSU current limit remains the primary protection. */
+#define FEATURE_SW_PHASE_OC      1
+#define SW_PHASE_OC_TRIP_COUNTS  1500   /* per-phase deviation from zero bias (counts) — Iu/Iv/Iw */
+#define SW_BUS_OC_TRIP_COUNTS    1500   /* DC-bus deviation from zero bias (counts); ATA gain≈16 so
+                                         * counts/amp differs from the phase channels — TUNE separately */
+#define SW_PHASE_OC_TRIP_FILTER  3      /* consecutive ISR samples (~67µs @45kHz) */
 #define FEATURE_PLL_STARTUP     0  /* 2026-06-11 twin design study (task #10): after ALIGN,
                                     * enter CL directly — the sector-PI/SCCP1 machinery runs a
                                     * BLIND accelerating commutation schedule from
@@ -234,8 +251,21 @@ extern "C" {
 #define FEATURE_X2CSCOPE         0  /* X2CScope via UART1 (bring-up debug) */
 #define FEATURE_GSP              1  /* Garuda Serial Protocol via UART1 */
 
-/* ADC pot: ON for MCLV-48V-300W bench, OFF for flight boards */
+/* ADC pot throttle. GarudaESE = 1: a pot is wired to the Speed test point TP5
+ * = RA6 = AD3AN2 (schematic-confirmed; the xlsx's RA8 entry is wrong). With this
+ * ON, the boot throttle source is the pot (turn the knob for throttle); GSP
+ * remains available at runtime via SET_THROTTLE_SRC for scripted/MCP control.
+ * NOTE: an unpopulated/floating TP5 reads non-zero → the board simply won't arm
+ * (arm requires throttle=0), which is safe. Set 0 to revert to GSP-default. */
 #define FEATURE_ADC_POT          1
+
+/* Dedicated hardware ARM toggle switch on RD4 (J1 TELE_RX, free pin), active-low
+ * (switch→GND closed = armed). Edge-triggered so it COMPOSES with the GUI/GSP
+ * arm (gspStartIntent): closing the switch arms, opening it kills the bridge —
+ * it acts only on its OWN transitions, so an unfitted/open switch never
+ * interferes with GUI control. Set 0 if no arm switch is wired. */
+#define FEATURE_ARM_SWITCH       1
+#define ARM_SWITCH_DEBOUNCE_MS   20    /* consecutive ~1ms reads to accept a level change */
 
 /* Burst scope: 128-sample ring buffer at ISR rate, triggered readout */
 #define FEATURE_BURST_SCOPE      1  /* Triggered high-rate burst scope (128×28B ring buffer) */
@@ -731,8 +761,10 @@ extern "C" {
  *   1290 ADC ≈ 24V (release — 4V hysteresis) */
 #define FEATURE_VBUS_REGEN_BRAKE 1
 #if FEATURE_VBUS_REGEN_BRAKE
-#define VBUS_REGEN_BRAKE_ON_ADC    1500    /* ~28V — engage brake */
-#define VBUS_REGEN_BRAKE_OFF_ADC   1290    /* ~24V — release brake (4V hysteresis) */
+/* GarudaESE divider 0.0769/42V FS → ≈97.5 counts/V. Was old 23:1 MCLV counts
+ * (1500≈15.4V here) which engaged permanently on any 6S bus and froze decel. */
+#define VBUS_REGEN_BRAKE_ON_ADC    2535    /* ~26V — engage brake (above 6S full-charge) */
+#define VBUS_REGEN_BRAKE_OFF_ADC   2400    /* ~24.6V — release brake (~1.4V hysteresis) */
 #define VBUS_REGEN_BRAKE_MIN_TICKS 240     /* Minimum engaged duration ~10ms at 24kHz */
 #define VBUS_REGEN_BRAKE_SLEW_DIVISOR 16   /* When brake engaged, slew-down rate
                                             * is reduced by this divisor (was a
@@ -768,8 +800,10 @@ extern "C" {
  * the user regains full control. */
 #define FEATURE_VBUS_EMERGENCY_HOLD  1
 #if FEATURE_VBUS_EMERGENCY_HOLD
-#define VBUS_EMERGENCY_HOLD_ON_ADC  1620   /* ~30V — engage hard freeze */
-#define VBUS_EMERGENCY_HOLD_OFF_ADC 1450   /* ~27V — release (3V hysteresis) */
+/* GarudaESE divider ≈97.5 counts/V (was old 23:1 counts). Ordered below the OV
+ * fault (2730≈28V): brake 2535 < emergency-hold 2660 < OV 2730. */
+#define VBUS_EMERGENCY_HOLD_ON_ADC  2660   /* ~27.3V — engage hard freeze (just under OV) */
+#define VBUS_EMERGENCY_HOLD_OFF_ADC 2560   /* ~26.3V — release (~1V hysteresis) */
 #define VBUS_EMERGENCY_HOLD_MIN_TICKS 480  /* Minimum engaged duration ~20ms at 24kHz */
 #endif
 
@@ -1558,6 +1592,29 @@ extern "C" {
 #define ZC_PHASE_GAIN_A         32768
 #define ZC_PHASE_GAIN_B         32768
 #define ZC_PHASE_GAIN_C         32768
+
+/* ── ZC neutral / threshold model (the level the floating-phase BEMF is
+ * compared against to find the zero crossing). Selectable on GarudaESE because
+ * the three phase voltages sit on DEDICATED ADC cores (AD3CH0/AD2CH1/AD5CH0)
+ * sampled simultaneously each PG1TRIGA — so the true star point (Vu+Vv+Vw)/3 is
+ * computable, unlike the muxed MCLV base.  Pick ONE: */
+#define ZC_NEUTRAL_DUTY        0  /* duty-proportional ON-center model: Vbus·duty/divisor.
+                                   * Tracks the float's PWM-ON level (the sample point).
+                                   * Bench-proven default for this firmware. */
+#define ZC_NEUTRAL_VBUS_HALF   1  /* fixed Vbus/2 (classic). Correct for OFF-center
+                                   * sampling; biased during PWM-ON. */
+#define ZC_NEUTRAL_COMPUTED    2  /* computed star point (Vu+Vv+Vw)/3 from the three
+                                   * simultaneous phase ADCs. Tracks the instantaneous
+                                   * neutral regardless of duty. */
+#define ZC_NEUTRAL_EXTERNAL    3  /* external virtual-neutral resistor network on the
+                                   * BEMF_N pin (RA11 = AD5CH1). */
+#ifndef ZC_NEUTRAL_MODEL
+#define ZC_NEUTRAL_MODEL        ZC_NEUTRAL_DUTY   /* <-- change to select */
+#endif
+
+/* Filter-lag compensation is an independent option (FEATURE_HWZC_FILTER_COMP,
+ * defined above) — it adds a per-polarity offset to undo the BEMF RC-filter
+ * phase lag. Composes with any ZC_NEUTRAL_MODEL. */
 
 /* Phase 2B: Adaptive refinements (disabled for initial bring-up) */
 #define ZC_ADAPTIVE_FILTER      1       /* Speed-dependent filter: drops to ZC_FILTER_MIN at high eRPM */

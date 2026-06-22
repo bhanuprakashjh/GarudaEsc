@@ -43,7 +43,13 @@ static uint8_t activeProfile;
     .zcAdcDeadband        = 4,  \
     .zcSyncThreshold      = 6,  \
     .zcFilterThreshold    = 2,  \
-    .vbusOvAdc            = 3600, \
+    /* Vbus OV/UV in ADC counts for the GarudaESE divider (0.0769, 42 V FS →
+     * count ≈ V × 4096/42 ≈ V × 97.5). OV ≈ 28 V (above 6S full-charge 25.2 V,
+     * below board/MOSFET headroom) = 2730 — was 3600 (≈37 V, carried over from
+     * the 23:1 MCLV divider, far too high for this board). UV kept LOW (≈5 V)
+     * so a current-limited bench PSU at 6–12 V does not nuisance-trip during
+     * first spin — RAISE to ≈17–18 V (1660–1755) for real 6S battery use. */ \
+    .vbusOvAdc            = 2730, \
     .vbusUvAdc            = 500,  \
     .desyncCoastMs        = 200,  \
     .desyncMaxRestarts    = 3,  \

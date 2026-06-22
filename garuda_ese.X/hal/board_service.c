@@ -19,11 +19,14 @@
 #include "board_service.h"
 #include "../garuda_config.h"
 #include "../garuda_types.h"    /* GARUDA_DATA_T, FAULT_TRAP_* for trap handlers */
-#if (FEATURE_HW_OVERCURRENT || FEATURE_FOC || FEATURE_FOC_V2 || FEATURE_FOC_V3 || FEATURE_FOC_AN1078)
-#include "port_config.h"      /* HAL_OA3_Init (HW_OC), HAL_OA12_Init (FOC/V2/V3) */
-#include "hal_spi.h"          /* GarudaESE: SPI2 to ATA6847 */
-#include "hal_ata6847.h"      /* GarudaESE: SPI-gated gate driver */
-#endif
+/* GarudaESE: SPI2 + ATA6847 + phase op-amp bring-up are CORE to this board
+ * (HAL_InitPeripherals calls them unconditionally), so these includes must be
+ * unconditional — not gated behind FEATURE_HW_OVERCURRENT/FOC like the 512
+ * tree did. Without this, HAL_SPI_Init/HAL_ATA6847_* compiled with implicit
+ * (int) prototypes — wrong on a 16-bit target. */
+#include "port_config.h"      /* HAL_OA12_Init (phase op-amps), HAL_OA3_Init (HW_OC) */
+#include "hal_spi.h"          /* SPI2 to ATA6847 */
+#include "hal_ata6847.h"      /* SPI-gated gate driver */
 #if FEATURE_HW_OVERCURRENT
 #include "hal_comparator.h"
 #endif
@@ -32,6 +35,13 @@ BUTTON_T buttonStartStop;
 BUTTON_T buttonDirectionChange;
 
 uint16_t boardServiceISRCounter = 0;
+
+/* GarudaESE: ATA6847 gate-driver readiness. Set from HAL_ATA6847_EnterGduNormal()
+ * in HAL_InitPeripherals — the state machine refuses to drive (ARM→ALIGN) unless
+ * this is true, so a failed SPI/GDU handshake can never drive PWM into a
+ * non-Normal driver. g_ataDiag holds the last nIRQ-fault diagnostic snapshot. */
+volatile bool g_ataReady = false;
+uint8_t       g_ataDiag[8] = {0};
 
 static void ButtonGroupInitialize(void);
 static void ButtonScan(BUTTON_T *, bool);
@@ -185,7 +195,10 @@ void HAL_InitPeripherals(void)
      * OVRENx overrides gate the actual switching. A full safe-stop/fault may
      * call HAL_ATA6847_EnterGduStandby() — see hal_ata6847.h.) */
     HAL_ATA6847_ClearFaults();
-    (void)HAL_ATA6847_EnterGduNormal();
+    /* Gate driving on GDU success: HAL_ATA6847_EnterGduNormal() verifies the
+     * SPI handshake + GDU-status poll. If it fails, g_ataReady stays false and
+     * the ARM→ALIGN transition is blocked (faults instead of driving). */
+    g_ataReady = HAL_ATA6847_EnterGduNormal();
 }
 
 /**

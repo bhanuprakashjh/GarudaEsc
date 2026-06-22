@@ -25,6 +25,7 @@
 #include "hal/port_config.h"
 #include "hal/board_service.h"
 #include "hal/hal_pwm.h"
+#include "hal/hal_ata6847.h"   /* GarudaESE: nIRQ fault poll (HAL_ATA6847_ReadDiag, g_ataReady) */
 #include "motor/startup.h"
 #include "motor/commutation.h"
 #if FEATURE_ADC_CMP_ZC
@@ -171,6 +172,11 @@ int main(void)
          * before transitioning to ALIGN — this is the safety gate.
          * Every real RC ESC auto-arms this way. */
         if (garudaData.state == ESC_IDLE
+            /* GarudaESE: only auto-arm when an RX source is actually selected —
+             * otherwise a stray locked RX link could arm during GSP bring-up. */
+            && (garudaData.throttleSource == THROTTLE_SRC_AUTO
+                || garudaData.throttleSource == THROTTLE_SRC_PWM
+                || garudaData.throttleSource == THROTTLE_SRC_DSHOT)
             && garudaData.rxLinkState == RX_LINK_LOCKED
             && rxCachedLocked
             && rxCachedThrottleAdc == 0)
@@ -210,6 +216,69 @@ int main(void)
 
         /* Board service — button debounce at 1ms rate */
         BoardService();
+
+        /* GarudaESE: poll the ATA6847 fault line. nIRQ (RC6) is active-LOW; the
+         * dsPIC has no fault-PCI on this MCU, so without this poll the firmware
+         * never learns of an ATA self-protection event (UV/OT/VDS short). ILIM
+         * chop is masked from nIRQ, so an assertion here is a real latched fault
+         * → kill the bridge and latch ESC_FAULT. Capture the diag for debug. */
+        if (garudaData.state >= ESC_ALIGN && garudaData.state <= ESC_CLOSED_LOOP
+            && ATA_nIRQ_GetValue() == 0)
+        {
+            HAL_MC1PWMDisableOutputs();
+            HAL_ATA6847_ReadDiag(g_ataDiag);        /* snapshot the fault cause */
+            garudaData.state = ESC_FAULT;
+            garudaData.faultCode = FAULT_BOARD_PCI; /* gate-driver-reported fault */
+            garudaData.runCommandActive = false;
+            LED2 = 0;
+        }
+
+#if FEATURE_ARM_SWITCH
+        /* Dedicated hardware ARM toggle on RD4 (J1/TELE_RX), active-low
+         * (closed→GND = armed). Edge-triggered + debounced via systemTick so it
+         * COMPOSES with the GUI/GSP arm: closing arms (if idle), opening kills
+         * the bridge. Acts only on its own transitions — an unfitted/open switch
+         * (held high by the pull-up) never interferes with GUI control. The
+         * initial level is latched without action, so a switch left closed at
+         * power-up does NOT auto-arm. */
+        {
+            static bool s_armStable = false, s_armCand = false, s_armInit = false;
+            static uint32_t s_armCandSince = 0;
+            bool armRaw = (ARM_SWITCH_GetValue() == 0);   /* closed = low = armed */
+            uint32_t nowMs = garudaData.systemTick;
+            if (armRaw != s_armCand) { s_armCand = armRaw; s_armCandSince = nowMs; }
+            if (!s_armInit) { s_armStable = s_armCand; s_armInit = true; }
+            else if (s_armCand != s_armStable
+                     && (uint32_t)(nowMs - s_armCandSince) >= ARM_SWITCH_DEBOUNCE_MS)
+            {
+                s_armStable = s_armCand;
+                if (s_armStable)
+                {
+                    /* open→closed: ARM (only from IDLE; ESC_ARMED then waits for
+                     * throttle=0 before ALIGN, same gate as every other path). */
+                    if (garudaData.state == ESC_IDLE)
+                    {
+                        garudaData.runCommandActive = true;
+                        garudaData.desyncRestartAttempts = 0;
+                        garudaData.armCounter = 0;
+                        garudaData.state = ESC_ARMED;
+                    }
+                }
+                else
+                {
+                    /* closed→open: KILL — disarm + drop the bridge immediately. */
+                    if (garudaData.state != ESC_IDLE && garudaData.state != ESC_FAULT)
+                    {
+                        HAL_MC1PWMDisableOutputs();
+                        garudaData.state = ESC_IDLE;
+                        garudaData.runCommandActive = false;
+                        garudaData.desyncRestartAttempts = 0;
+                        LED2 = 0;
+                    }
+                }
+            }
+        }
+#endif /* FEATURE_ARM_SWITCH */
 
         /* Button 1 (SW1) — Start/Stop motor */
         if (IsPressed_Button1())

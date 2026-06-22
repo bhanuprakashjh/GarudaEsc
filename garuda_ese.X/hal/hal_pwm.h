@@ -2,10 +2,10 @@
  * @file hal_pwm.h
  *
  * @brief PWM module definitions and interface for 6-step BLDC commutation.
- * Adapted from AN1292 reference — changed to 24kHz, added override control
+ * Adapted from AN1292 reference — 45 kHz switching, added override control
  * for 6-step commutation, removed SVM/single-shunt logic.
  *
- * Definitions in this file are for dsPIC33AK128MC106
+ * Definitions in this file are for dsPIC33AK256MC506 (GarudaESE)
  *
  * Component: PWM
  */

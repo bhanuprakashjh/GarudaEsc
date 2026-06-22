@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GarudaEsc — EV60Y51A 6-step BLDC ESC Firmware</title>
+<style>
+  :root { --blue:#2c5aa0; --dark:#1a3a6b; --bg:#f6f8fb; --amber:#f0a000; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+         color:#1a1a1a; line-height:1.55; background:#fff; }
+  header { background:linear-gradient(135deg,#1a3a6b,#2c5aa0); color:#fff; padding:46px 24px; }
+  header .wrap { max-width:920px; margin:0 auto; }
+  header h1 { margin:0 0 8px; font-size:30px; }
+  header p { margin:0; opacity:.92; font-size:16px; max-width:680px; }
+  .badges { margin-top:16px; }
+  .badge { display:inline-block; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3);
+           border-radius:20px; padding:4px 12px; font-size:12.5px; margin:0 6px 6px 0; }
+  main { max-width:920px; margin:0 auto; padding:30px 24px 60px; }
+  h2 { color:var(--dark); border-bottom:2px solid #e2e8f2; padding-bottom:6px; margin-top:38px; font-size:21px; }
+  a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+  .docs { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
+  @media(max-width:680px){ .docs{ grid-template-columns:1fr; } }
+  .card { border:1px solid #dde3ec; border-radius:10px; padding:18px 20px; background:var(--bg);
+          transition:box-shadow .15s; }
+  .card:hover { box-shadow:0 4px 16px rgba(44,90,160,.13); }
+  .card h3 { margin:0 0 6px; color:var(--dark); font-size:17px; }
+  .card p { margin:0 0 12px; font-size:13.5px; color:#444; }
+  .card .links a { display:inline-block; background:var(--blue); color:#fff; padding:6px 14px;
+                   border-radius:6px; font-size:13px; margin-right:8px; }
+  .card .links a.alt { background:#fff; color:var(--blue); border:1px solid var(--blue); }
+  table { border-collapse:collapse; width:100%; margin-top:14px; font-size:13.5px; }
+  th,td { border:1px solid #cdd5e1; padding:6px 10px; text-align:left; }
+  th { background:#e8eef7; } tr:nth-child(even) td { background:#f6f8fb; }
+  ul li { margin:4px 0; }
+  pre { background:#f6f8fa; border:1px solid #ddd; border-radius:6px; padding:12px 14px; overflow-x:auto; font-size:13px; }
+  code { font-family:'Consolas','DejaVu Sans Mono',monospace; }
+  .warn { border-left:4px solid var(--amber); background:#fff8e8; padding:12px 16px; border-radius:6px;
+          margin-top:16px; color:#4a3a10; font-size:14px; }
+  footer { border-top:1px solid #e2e8f2; padding:22px 24px; text-align:center; color:#778; font-size:12.5px; }
+  .pinmap td:first-child { font-weight:600; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>GarudaEsc</h1>
+  <p>6-step sensorless BLDC ESC firmware for the <strong>EV60Y51A V1.0</strong> board —
+     dsPIC33AK256MC506 + ATA6847T-5033 + BSC028N06, 25 V / 6S.</p>
+  <div class="badges">
+    <span class="badge">dsPIC33AK256MC506-E/M7</span>
+    <span class="badge">XC-DSC v3.30 · builds clean</span>
+    <span class="badge">6-step sensorless</span>
+    <span class="badge">GSP v3</span>
+  </div>
+</div></header>
+
+<main>
+  <div class="warn"><strong>Status:</strong> verified at register-encoding / compile / flash + schematic
+  level. <strong>Not yet validated on a spinning motor</strong> — follow the bring-up plan,
+  current-limited, before powering a motor.</div>
+
+  <h2>Documentation</h2>
+  <div class="docs">
+    <div class="card">
+      <h3>Port Reference</h3>
+      <p>Features, verified pin map, current-sense &amp; BEMF architecture, ZC neutral options,
+         protection layer, and the full caveats list.</p>
+      <div class="links">
+        <a href="GarudaESE_Port_Reference.pdf">PDF</a>
+        <a class="alt" href="GarudaESE_Port_Reference.md">Markdown</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Bring-Up Plan</h3>
+      <p>Staged S0–S7 procedure for developers — PSU-current-limit first, per-stage pass
+         criteria, current-sense calibration, and a fault-triage table.</p>
+      <div class="links">
+        <a href="GarudaESE_BringUp_Plan.pdf">PDF</a>
+        <a class="alt" href="GarudaESE_BringUp_Plan.md">Markdown</a>
+      </div>
+    </div>
+  </div>
+
+  <h2>What it is</h2>
+  <p>A clean 6-step sensorless ESC: rotor position is found by sampling the floating phase's
+     back-EMF on the dsPIC ADC and detecting the zero-crossing in software; commutation is
+     scheduled 30° (minus timing advance) after each confirmed crossing. Throttle and
+     telemetry run over the <strong>GSP</strong> protocol; the <strong>ATA6847</strong> gate
+     driver is configured and monitored over <strong>SPI2</strong>. FOC code is present but
+     dormant.</p>
+  <ul>
+    <li><strong>Software BEMF ZC</strong> with selectable neutral model (duty-proportional /
+        Vbus·½ / computed (Vu+Vv+Vw)/3 / external neutral) + RC-lag compensation.</li>
+    <li><strong>Full current sense</strong> — Iu/Iv (dsPIC op-amps), Iw + DC-bus (ATA op-amps),
+        all on the dsPIC ADC; 4 × 2 mΩ shunts.</li>
+    <li><strong>Protection</strong> — Vbus OV/UV, software OC (3 phases + bus), ATA ILIM,
+        VDS short-circuit, nIRQ fault poll, gate-driver-ready gate.</li>
+    <li><strong>Throttle</strong> — pot (TP5), GUI/GSP (arm + ramp with no pot), or RX/DShot.</li>
+    <li><strong>Arming</strong> — hardware ARM toggle (kill-on-open) or GUI; they compose safely.</li>
+  </ul>
+
+  <h2>Verified pin map (summary)</h2>
+  <table class="pinmap">
+    <tr><th>Function</th><th>Pins</th></tr>
+    <tr><td>PWM U/V/W (H,L)</td><td>RD2/RD3, RD0/RD1, RC3/RC4 — HS active-low for ATA</td></tr>
+    <tr><td>Phase Iu / Iv</td><td>dsPIC OA1 (RA2/AD1AN0), OA2 (RB0/AD2AN0)</td></tr>
+    <tr><td>Phase Iw / DC bus</td><td>ATA6847 op-amps → RA5/AD3AN0, RB4/AD4AN0</td></tr>
+    <tr><td>BEMF U/V/W / neutral</td><td>RB5, RB8, RA1 / RA11 (dedicated ADC cores)</td></tr>
+    <tr><td>SPI2 ↔ ATA6847</td><td>SCK RB10, SDO2 RB11, SDI2 RC9, nCS RC8, nIRQ RC6</td></tr>
+    <tr><td>GSP UART</td><td>RD7 (TX) / RD8 (RX)</td></tr>
+    <tr><td>Pot (TP5) / ARM switch</td><td>RA6 / RD4 (J1)</td></tr>
+  </table>
+
+  <h2>Build</h2>
+  <pre>cd garuda_ese.X
+make CONF=default        # MPLAB XC-DSC v3.30 on PATH</pre>
+  <p>…or open <code>garuda_ese.X</code> in MPLAB X and Build.</p>
+
+  <div class="warn"><strong>Safety:</strong> unproven hardware — bring up on a current-limited
+  supply, low Vbus, no propeller until the final staged test. Set your real motor profile and
+  calibrate the protection thresholds before running on a battery.</div>
+</main>
+
+<footer>
+  GarudaEsc · EV60Y51A 6-step sensorless BLDC ESC firmware ·
+  <a href="https://github.com/bhanuprakashjh/GarudaEsc">github.com/bhanuprakashjh/GarudaEsc</a>
+</footer>
+</body>
+</html>

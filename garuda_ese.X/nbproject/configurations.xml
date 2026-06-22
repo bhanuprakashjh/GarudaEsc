@@ -136,7 +136,7 @@
       <itemPath>x2cscope/diagnostics.c</itemPath>
     </logicalFolder>
   </logicalFolder>
-    <sourceRootList>
+  <sourceRootList>
     <Elem>.</Elem>
   </sourceRootList>
   <projectmakefile>Makefile</projectmakefile>
@@ -185,7 +185,8 @@
       <C30>
         <property key="enable-all-warnings" value="true"/>
         <property key="enable-symbols" value="true"/>
-        <property key="extra-include-directories" value="hal;motor;gsp;learn;input;scope;x2cscope;foc;."/>
+        <property key="extra-include-directories"
+                  value="hal;motor;gsp;learn;input;scope;x2cscope;foc;."/>
         <property key="optimization-level" value="1"/>
         <property key="preprocessor-macros" value=""/>
       </C30>

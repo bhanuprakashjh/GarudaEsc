@@ -70,17 +70,17 @@ void MapGPIOHWFunction(void)
     ANSELBbits.ANSELB1 = 1; TRISBbits.TRISB1 = 1;   /* OA2IN- */
     ANSELBbits.ANSELB0 = 1; TRISBbits.TRISB0 = 1;   /* OA2OUT */
 
-    /* ── Current sense = dsPIC OA1/OA2 ONLY (see note) ──────────────
-     * The ATA6847 op-amp block is configured for BEMF (3 comparators,
-     * GDUCR1.BEMFEN=1) — this is MUTUALLY EXCLUSIVE with the ATA current-
-     * sense amplifiers. So the schematic's ATA-CSA paths for W (OPA2→RA5,
-     * net W_OA3_OUT) and DC-bus (OPA3→RB4, net IBUS_OA_OUT) are INACTIVE.
-     *   Iu = dsPIC OA1 (RA2 out), Iv = dsPIC OA2 (RB0 out);  Iw = -(Iu+Iv).
-     * RA5/RB4 are left as inputs but carry no valid signal in BEMF mode;
-     * overcurrent uses phase currents + ATA SCPCR/ILIM (FEATURE_HW_OVERCURRENT
-     * stays OFF — the 512 OA3/CMP3 bus-OC path does not exist here). */
-    ANSELAbits.ANSELA5 = 1; TRISAbits.TRISA5 = 1;   /* RA5 (ATA W out — inactive in BEMF mode) */
-    ANSELBbits.ANSELB4 = 1; TRISBbits.TRISB4 = 1;   /* RB4 (ATA bus out — inactive in BEMF mode) */
+    /* ── Current sense: 4× 2 mΩ shunts, mixed amplification (schematic pg5) ──
+     * Iu = dsPIC OA1 (RA2 out → AD1AN0), Iv = dsPIC OA2 (RB0 out → AD2AN0).
+     * Iw = ATA6847 CSA2 (W_OPP2/W_OPN2) → W_OA3_OUT → RA5 = AD3AN0.
+     * Ibus = ATA6847 CSA3 (IBUS_OPP3/OPN3) → IBUS_OA_OUT → RB4 = AD4AN0.
+     * All FOUR currents are real and read by the dsPIC ADC (Iw is NOT computed).
+     * Per the ATA6847 datasheet, BEMF comparators conflict ONLY with CSA1; CSA2
+     * and CSA3 run alongside BEMF — so W/bus current sense + BEMF coexist (we
+     * enable CSA2|CSA3, leave CSA1 off — see hal_ata6847.c). RA5/RB4 are analog
+     * inputs (the ATA op-amp outputs), NOT dsPIC op-amp pins (dsPIC OA3 unused). */
+    ANSELAbits.ANSELA5 = 1; TRISAbits.TRISA5 = 1;   /* RA5 = AD3AN0  ← ATA CSA2 (Iw)  */
+    ANSELBbits.ANSELB4 = 1; TRISBbits.TRISB4 = 1;   /* RB4 = AD4AN0  ← ATA CSA3 (Ibus) */
 
     /* ── BEMF resistor-divider analog inputs (ADC ZC: options Z2/Z3) ─
      * BEMF_U RB5 (AD3AN1), BEMF_V RB8 (AD2AN4), BEMF_W RA1 (AD5AN1),
@@ -101,15 +101,26 @@ void MapGPIOHWFunction(void)
      * VBUS RA7 (AD5AN0), TEMP RA0 (AD3AN5), Speed RA6 (AD3AN2, reserved). */
     ANSELAbits.ANSELA7 = 1; TRISAbits.TRISA7 = 1;    /* VBUS */
     ANSELAbits.ANSELA0 = 1; TRISAbits.TRISA0 = 1;    /* TEMP */
-    ANSELAbits.ANSELA6 = 1; TRISAbits.TRISA6 = 1;    /* Speed (reserved/unrouted) */
+    ANSELAbits.ANSELA6 = 1; TRISAbits.TRISA6 = 1;    /* Speed/POT throttle = TP5 (AD3AN2) */
     /* UREF RA8 is a DAC output (DACOUT2) — leave to the DAC peripheral. */
 
     /* ── SPI2 ↔ ATA6847 (PPS) ───────────────────────────────────────
-     * SCK2OUT(17) → RP27(RB10); SDO2(16) → RP42(RC9); SDI2 ← RP28(RB11).
+     * Direction follows the BOARD net routing (EV60Y51A schematic, traced):
+     *   net SPI_SCK : RB10(RP27)  ──> ATA SCK (pin47)        master clock OUT
+     *   net SPI_SDI : RB11(RP28)  ──> ATA SDI (pin46)        data INTO ATA → dsPIC OUT (SDO2)
+     *   net SPI_SDO : RC9 (RP42)  <── ATA SDO (pin45)        data FROM ATA → dsPIC IN  (SDI2)
+     * => dsPIC pin32(RB11)=SPI data OUT, pin34(RC9)=SPI data IN.
+     * NOTE the board author named the nets after the dsPIC pins' DEFAULT
+     * functions (RB11=SDI2, RC9=SDO2) but wired SDI↔SDI / SDO↔SDO — backwards
+     * for SPI. PPS lets any RPn be SDO2-out or SDI2-in, so we follow the
+     * routing, not the pin name. (Earlier rev had these two swapped → the
+     * dsPIC never drove the ATA's SDI, gates stayed dead.)
      * nCS = RC8 GPIO (idle high); nIRQ = RC6 GPIO input. */
-    _RP27R = 17;            /* RB10 → SCK2OUT */
-    _RP42R = 16;            /* RC9  → SDO2    */
-    _SDI2R = 28;            /* SDI2 ← RP28 (RB11) */
+    _RP27R = 17;            /* RB10 (RP27) → SCK2OUT → ATA SCK (pin47) */
+    _RP28R = 16;            /* RB11 (RP28, pin32) → SDO2 (data OUT) → ATA SDI (pin46) */
+    _SDI2R = 42;            /* SDI2 (data IN) ← RP42 (RC9, pin34) ← ATA SDO (pin45) */
+    TRISBbits.TRISB11 = 0;  /* RB11 = SDO2 output */
+    TRISCbits.TRISC9  = 1;  /* RC9  = SDI2 input  */
     TRISCbits.TRISC8 = 0; LATCbits.LATC8 = 1;        /* nCS idle high */
     TRISCbits.TRISC6 = 1;                            /* nIRQ input */
 
@@ -128,6 +139,12 @@ void MapGPIOHWFunction(void)
 
     /* ── Bench ARM switch on DShot pin (RD5) ────────────────────────── */
     TRISDbits.TRISD5 = 1;                            /* input (use internal pull-up via CNPU if needed) */
+
+    /* ── Dedicated ARM toggle switch on RD4 (J1 TELE_RX, free) ────────
+     * Active-low: switch→GND closes = armed; internal pull-up = open/disarmed.
+     * See FEATURE_ARM_SWITCH (main.c). */
+    TRISDbits.TRISD4 = 1;                            /* input */
+    CNPUDbits.CNPUD4 = 1;                            /* internal pull-up (open reads high = disarmed) */
 }
 
 /**

@@ -5,10 +5,11 @@
  * Adapted from AN1292 reference:
  *   - Keeps: PCLKCON, MPER, dead time, complementary mode, PG1 master,
  *            PG2+PG3 slave, bootstrap charging, ADC trigger on PG1TRIGA
- *   - Changes: 24kHz switching frequency, override control for 6-step
+ *   - Changes: 45 kHz switching frequency, override control for 6-step
  *   - Removes: Single-shunt trigger logic, SVM configuration
  *
- * Definitions in this file are for dsPIC33AK128MC106
+ * Definitions in this file are for dsPIC33AK256MC506 (GarudaESE).
+ * HS active-LOW (POLH=1) for the ATA6847; IOCON1/IOCON2 split (see below).
  *
  * Component: PWM
  */
@@ -212,8 +213,8 @@ void InitPWMGenerator1(void)
     PG1IOCON1bits.PMOD = 0;         /* Complementary mode */
     PG1IOCON1bits.PENH = 1;
     PG1IOCON1bits.PENL = 1;
-    PG1IOCON1bits.POLH = 0;
-    PG1IOCON1bits.POLL = 0;
+    PG1IOCON1bits.POLH = 1;         /* HS active-LOW: ATA6847 INH is active-low (drive H pin low = HS on) */
+    PG1IOCON1bits.POLL = 0;         /* LS active-high: ATA6847 INL is active-high */
 
     /* Event register */
     PG1EVT1 = 0x0000; PG1EVT2 = 0x0000;
@@ -359,8 +360,8 @@ void InitPWMGenerator2(void)
     PG2IOCON1bits.PMOD = 0;
     PG2IOCON1bits.PENH = 1;
     PG2IOCON1bits.PENL = 1;
-    PG2IOCON1bits.POLH = 0;
-    PG2IOCON1bits.POLL = 0;
+    PG2IOCON1bits.POLH = 1;         /* HS active-LOW (ATA6847 INH) */
+    PG2IOCON1bits.POLL = 0;         /* LS active-high (ATA6847 INL) */
 
     PG2EVT1 = 0x0000; PG2EVT2 = 0x0000;
     PG2EVT1bits.ADTR1PS = 0;
@@ -484,8 +485,8 @@ void InitPWMGenerator3(void)
     PG3IOCON1bits.PMOD = 0;
     PG3IOCON1bits.PENH = 1;
     PG3IOCON1bits.PENL = 1;
-    PG3IOCON1bits.POLH = 0;
-    PG3IOCON1bits.POLL = 0;
+    PG3IOCON1bits.POLH = 1;         /* HS active-LOW (ATA6847 INH) */
+    PG3IOCON1bits.POLL = 0;         /* LS active-high (ATA6847 INL) */
 
     PG3EVT1 = 0x0000; PG3EVT2 = 0x0000;
     PG3EVT1bits.ADTR1PS = 0;
@@ -572,24 +573,40 @@ void InitPWMGenerator3(void)
     PG3TRIGC    = 0x0000;
 }
 
-/* Precomputed full-word PGxIOCON patterns for 6-step commutation.
+/* Precomputed full-word PGxIOCON2 patterns for 6-step commutation.
  *
- * Preserves init-time bits PENH=1 (bit19) and PENL=1 (bit18) → 0x000C0000.
- * Lower 16 bits select the override mode:
- *   OVRENH  = bit13
- *   OVRENL  = bit12
- *   OVRDAT  = bits[11:10]  (bit11 = H data, bit10 = L data)
+ * dsPIC33AK256MC506 splits the old combined PGxIOCON into PGxIOCON1 (pin
+ * enable/polarity: PENH, PENL, POLH, POLL, PMOD — set ONCE at init) and
+ * PGxIOCON2 (override + fault data — written every commutation). These words
+ * target IOCON2, whose field bit positions differ from the AK128 combined
+ * register:
+ *   OVRENH = bit21 (0x00200000)
+ *   OVRENL = bit20 (0x00100000)
+ *   OVRDAT = bits[13:12]  (bit13 = H data, bit12 = L data)
+ * All other IOCON2 fields (CLMOD, OSYNC, FLT*DAT, CLDAT, FFDAT, DBDAT) are 0
+ * in this design, so a full-word store is equivalent to RMW on the override
+ * fields alone — and PENH/PENL are NOT here (they stay in IOCON1).
  *
- * Atomic 32-bit SFR write = 1 instruction cycle (10 ns).
- * Replaces 2-3 read-modify-write bit-field ops (~30 ns each) with a single
- * store, cutting inter-phase skew from ~90 ns to ~30 ns across all three PGs.
- * The reduced skew is what prevents 24 V · (di/dt) transient spikes from
- * crossing the 22 A board fault threshold during a sector transition.
+ * POLH=1 (HS active-low for the ATA6847 INH input) is set in IOCON1 at init
+ * and inverts ONLY the final H pin, AFTER the override mux. So OVRDAT is the
+ * LOGICAL pre-polarity value and the encoding below is identical to a
+ * non-inverted board — the ATA simply receives the inverted H level:
+ *   OVRDAT_H=0 → POLH inverts → H pin HIGH → ATA INH HIGH → HS FET OFF
+ *   OVRDAT_H=1 → POLH inverts → H pin LOW  → ATA INH LOW  → HS FET ON
+ *   OVRDAT_L=0 → POLL=0, no invert → L pin LOW  → ATA INL LOW  → LS FET OFF
+ *   OVRDAT_L=1 → POLL=0, no invert → L pin HIGH → ATA INL HIGH → LS FET ON
+ * (Semantics verified against the bench-proven garuda-ak-ata-esc ATA6847
+ * driver — same gate driver, same active-low-H convention.)
+ *
+ * Atomic 32-bit SFR write = 1 instruction cycle (5 ns @ 200 MHz).
+ * Replaces 2-3 read-modify-write bit-field ops with a single store, cutting
+ * inter-phase skew across all three PGs and minimising the window of
+ * intermediate invalid phase states during a sector transition.
  */
-#define PG_IOCON_KEEP        0x000C0000U  /* PENH=1, PENL=1 */
-#define PG_IOCON_PWM_ACTIVE  (PG_IOCON_KEEP | 0x00000000U)          /* ENH=0 ENL=0 */
-#define PG_IOCON_LOW         (PG_IOCON_KEEP | 0x00003400U)          /* ENH=1 ENL=1 OVRDAT=01 (H=LOW, L=HIGH sink) */
-#define PG_IOCON_FLOAT       (PG_IOCON_KEEP | 0x00003000U)          /* ENH=1 ENL=1 OVRDAT=00 (both LOW, high-Z) */
+#define PG_IOCON_OVREN       0x00300000U                            /* OVRENH=1, OVRENL=1 */
+#define PG_IOCON_PWM_ACTIVE  0x00000000U                            /* ENH=0 ENL=0 → complementary PWM drives */
+#define PG_IOCON_LOW         (PG_IOCON_OVREN | 0x00001000U)         /* OVRDAT=01 (H off, L on)  → phase pulled LOW */
+#define PG_IOCON_FLOAT       (PG_IOCON_OVREN | 0x00000000U)         /* OVRDAT=00 (H off, L off) → high-Z float */
 
 static inline uint32_t pgIoconWord(uint8_t mode)
 {

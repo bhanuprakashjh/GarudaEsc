@@ -60,10 +60,10 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
 
     /* Bus */
     dst->vbusRaw     = src->vbusRaw;
-#if FEATURE_HW_OVERCURRENT
+    /* GarudaESE: real DC-bus current (ATA op-amp → AD4AN0) — always reported,
+     * un-gated from FEATURE_HW_OVERCURRENT so the GUI/Studio shows live bus amps. */
     dst->ibusRaw     = src->ibusRaw;
     dst->ibusMax     = src->ibusMax;
-#endif
 
     /* BEMF/ZC */
     dst->bemfRaw     = src->bemf.bemfRaw;

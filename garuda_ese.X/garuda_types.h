@@ -710,9 +710,13 @@ typedef struct
     } phaseCurrent;
 #endif
 
-#if FEATURE_HW_OVERCURRENT
-    uint16_t ibusRaw;             /* Bus current ADC (biased ~2048, ~93 counts/A) */
+    /* GarudaESE: real DC-bus current IS available (ATA op-amp → AD4AN0), so
+     * ibusRaw/ibusMax are ALWAYS present (un-gated from FEATURE_HW_OVERCURRENT).
+     * The dsPIC OA3/CMP3 trip-count fields below stay gated (that path is
+     * specific to the MCLV bus-OC hardware which this board does not have). */
+    uint16_t ibusRaw;             /* Bus current ADC (ATA op-amp; bias auto-zeroed) */
     uint16_t ibusMax;             /* Peak bus current since last clear */
+#if FEATURE_HW_OVERCURRENT
     uint32_t clpciTripCount;      /* Coarse CLPCI activity counter via CLEVT polling.
                                    * One ADC tick (41.7us) may collapse multiple chop
                                    * events into one increment. Telemetry only. */

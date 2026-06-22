@@ -24,14 +24,19 @@ extern "C" {
 #endif
 
 /* ── Control inputs ───────────────────────────────────────────────
- * GarudaESE has NO on-board buttons. The bench ARM switch is a digital
- * GPIO on the DShot pin (RD5/J1.7, internal pull-up, switch→GND).
- * There is no direction button — direction is fixed / GSP-controlled,
- * so SW2 aliases SW1 to keep board_service code compiling. */
-#define SW1                     PORTDbits.RD5     /* ARM switch (J1.7) */
+ * GarudaESE has NO on-board buttons. The momentary Start/Stop button maps to
+ * the DShot pin (RD5/J1) for legacy board_service code; the dedicated bench ARM
+ * switch is a toggle on the free TELE_RX pin (RD4/J1), internal pull-up,
+ * switch→GND (closed = armed). There is no direction button — direction is
+ * fixed / GSP-controlled, so SW2 aliases SW1 to keep board_service compiling. */
+#define SW1                     PORTDbits.RD5     /* momentary Start/Stop (DShot pin, J1) */
 #define SW2                     PORTDbits.RD5     /* no direction btn — alias */
 #define BUTTON_START_STOP       SW1
 #define BUTTON_DIRECTION_CHANGE SW2
+
+/* Dedicated ARM toggle switch on RD4 (J1 TELE_RX, free). Active-LOW:
+ * closed (→GND) = armed, open (pull-up) = disarmed. See FEATURE_ARM_SWITCH. */
+#define ARM_SWITCH_GetValue()   (PORTDbits.RD4)   /* 0 = armed (closed) */
 
 /* ── Status LED (D4 orange, RC0/pin39) ────────────────────────────
  * Single LED on GarudaESE; LED2 aliases LED1 so existing code links. */

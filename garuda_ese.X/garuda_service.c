@@ -830,17 +830,22 @@ void GARUDA_ServiceInit(void)
 #endif
 
     /* Throttle source init — unconditional (Finding 42/54).
-     * Priority: ADC_POT > RX_AUTO > RX_PWM > RX_DSHOT > GSP */
+     * GarudaESE: the pot on test point TP5 (RA6/AD3AN2) is the boot throttle
+     * when FEATURE_ADC_POT=1 — turn the knob for throttle. GSP (debug-UART)
+     * remains available at runtime via SET_THROTTLE_SRC for scripted/MCP
+     * control. If the pot is disabled, GSP is the default. RX auto-arm only
+     * fires when an RX source is explicitly selected (see main.c).
+     * Priority: ADC_POT > GSP > RX_AUTO > RX_PWM > RX_DSHOT. */
 #if FEATURE_ADC_POT
     garudaData.throttleSource = THROTTLE_SRC_ADC;
+#elif FEATURE_GSP
+    garudaData.throttleSource = THROTTLE_SRC_GSP;
 #elif FEATURE_RX_AUTO
     garudaData.throttleSource = THROTTLE_SRC_AUTO;
 #elif FEATURE_RX_PWM
     garudaData.throttleSource = THROTTLE_SRC_PWM;
 #elif FEATURE_RX_DSHOT
     garudaData.throttleSource = THROTTLE_SRC_DSHOT;
-#elif FEATURE_GSP
-    garudaData.throttleSource = THROTTLE_SRC_GSP;
 #endif
 
 #if FEATURE_HW_OVERCURRENT
@@ -1032,13 +1037,27 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
         /* Steps 2,5: B=FLOAT — no update, use cached measuredNeutral */
     }
 
-    /* ZC threshold: duty-proportional (P0) with symmetric IIR (P3).
-     * P0: Exact division replaces >>18 shift (+1.7% bias fix).
-     * P1 measured neutral disabled — see comment above. */
+    /* ZC threshold (neutral model) — selected by ZC_NEUTRAL_MODEL in
+     * garuda_config.h. The chosen model produces rawThresh; the symmetric IIR
+     * (P3) below smooths it, and FEATURE_HWZC_FILTER_COMP (if on) adds the
+     * RC-lag offset. (P1 phaseB-rail measuredNeutral stays disabled — see the
+     * comment above; it only feeds diagnostics.) */
     static uint16_t zcThreshSmooth = 0;
     {
-        /* P0: Duty-proportional threshold — always used.
-         * Exact division replaces >>18 shift (+1.7% bias fix). */
+#if   ZC_NEUTRAL_MODEL == ZC_NEUTRAL_VBUS_HALF
+        /* Classic fixed midpoint Vbus/2. */
+        uint16_t rawThresh = garudaData.vbusRaw >> 1;
+#elif ZC_NEUTRAL_MODEL == ZC_NEUTRAL_COMPUTED
+        /* True star point (Vu+Vv+Vw)/3 — valid because the three phase ADCs are
+         * sampled simultaneously on dedicated cores (no mux). Tracks the
+         * instantaneous neutral independent of duty. */
+        uint16_t rawThresh = (uint16_t)(
+            ((uint32_t)phaseU_val + phaseV_val + phaseW_val) / 3u);
+#elif ZC_NEUTRAL_MODEL == ZC_NEUTRAL_EXTERNAL
+        /* External virtual-neutral resistor network on BEMF_N (RA11 = AD5CH1). */
+        uint16_t rawThresh = ADCBUF_BEMF_N;
+#else /* ZC_NEUTRAL_DUTY (default): duty-proportional ON-center model.
+       * Exact division replaces >>18 shift (+1.7% bias fix). */
 #if FEATURE_CL_DIFF_IDLE
         /* Differential-low CL: BOTH driven phases carry the MIN_DUTY base
          * pulse (active = duty+MIN_DUTY, low = MIN_DUTY), so the float's
@@ -1056,6 +1075,7 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
         uint16_t rawThresh = (uint16_t)(
             ((uint32_t)garudaData.vbusRaw * garudaData.duty) / ZC_DUTY_DIVISOR);
 #endif
+#endif /* ZC_NEUTRAL_MODEL */
 
         if (garudaData.state == ESC_CLOSED_LOOP
 #if FEATURE_SINE_STARTUP
@@ -1329,20 +1349,75 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
         }
         uint16_t ia = ADCBUF_IA_MON;
         uint16_t ib = ADCBUF_IB_MON;
+        uint16_t iw = ADCBUF_IW;            /* real W current (ATA op-amp → AD3AN0) */
+        uint16_t ibus = ADCBUF_IBUS;        /* real DC-bus current (ATA op-amp → AD4AN0) */
         garudaData.phaseCurrent.iaRaw = ia;
         garudaData.phaseCurrent.ibRaw = ib;
         if (ia > garudaData.phaseCurrent.iaMax) garudaData.phaseCurrent.iaMax = ia;
         if (ia < garudaData.phaseCurrent.iaMin) garudaData.phaseCurrent.iaMin = ia;
         if (ib > garudaData.phaseCurrent.ibMax) garudaData.phaseCurrent.ibMax = ib;
         if (ib < garudaData.phaseCurrent.ibMin) garudaData.phaseCurrent.ibMin = ib;
-
-        /* Bus-current window tracking — uses the existing garudaData.ibusRaw
-         * which is captured later in this ISR, but at this point still holds
-         * the PREVIOUS ISR's value (which is fine for window-aggregating). */
-#if FEATURE_HW_OVERCURRENT
-        uint16_t ibus = garudaData.ibusRaw;
+        /* Real bus current is now available on AD4AN0. Reading AD3CH3 (Iw) and
+         * AD4CH0 (Ibus) every ISR also clears their data-ready (mandatory on
+         * dsPIC33AK). The legacy FEATURE_HW_OVERCURRENT bus block below is off
+         * on this board, so own ibusRaw + its window here. */
+        garudaData.ibusRaw = ibus;
+        if (ibus > garudaData.ibusMax) garudaData.ibusMax = ibus;
         if (ibus > garudaData.phaseCurrent.ibusWinMax) garudaData.phaseCurrent.ibusWinMax = ibus;
         if (ibus < garudaData.phaseCurrent.ibusWinMin) garudaData.phaseCurrent.ibusWinMin = ibus;
+
+#if FEATURE_SW_PHASE_OC
+        /* ── Software over-current — the ONLY firmware current protection on
+         * GarudaESE (FEATURE_HW_OVERCURRENT is off). Covers all THREE phase
+         * currents (Iu/Iv = dsPIC OA1/OA2, Iw = ATA op-amp @ AD3AN0) AND the
+         * DC-bus current (ATA op-amp @ AD4AN0). Bias = zero-current ADC rest,
+         * tracked by a slow IIR (~1/64) while the bridge is off (IDLE/ARMED) and
+         * frozen once driving. Trip if any phase exceeds SW_PHASE_OC_TRIP_COUNTS
+         * or the bus exceeds SW_BUS_OC_TRIP_COUNTS, held SW_PHASE_OC_TRIP_FILTER
+         * samples → kill the bridge + latch ESC_FAULT.  ** TUNE on bench **. */
+        {
+            static int16_t s_biasA = 2048, s_biasB = 2048, s_biasW = 2048, s_biasBus = 2048;
+            static uint8_t s_ocCnt = 0, s_busOcCnt = 0;
+            if (entryState == ESC_IDLE || entryState == ESC_ARMED)
+            {
+                s_biasA   += ((int16_t)ia   - s_biasA)   / 64;
+                s_biasB   += ((int16_t)ib   - s_biasB)   / 64;
+                s_biasW   += ((int16_t)iw   - s_biasW)   / 64;
+                s_biasBus += ((int16_t)ibus - s_biasBus) / 64;
+                s_ocCnt = 0; s_busOcCnt = 0;
+            }
+            else if (entryState >= ESC_ALIGN && entryState <= ESC_CLOSED_LOOP)
+            {
+                int16_t da = (int16_t)ia - s_biasA; if (da < 0) da = -da;
+                int16_t db = (int16_t)ib - s_biasB; if (db < 0) db = -db;
+                int16_t dw = (int16_t)iw - s_biasW; if (dw < 0) dw = -dw;
+                uint16_t dmax = (uint16_t)da;
+                if ((uint16_t)db > dmax) dmax = (uint16_t)db;
+                if ((uint16_t)dw > dmax) dmax = (uint16_t)dw;
+                int16_t dbus = (int16_t)ibus - s_biasBus; if (dbus < 0) dbus = -dbus;
+
+                bool ocTrip = false;
+                if (dmax > SW_PHASE_OC_TRIP_COUNTS)
+                {
+                    if (++s_ocCnt >= SW_PHASE_OC_TRIP_FILTER) ocTrip = true;
+                }
+                else s_ocCnt = 0;
+                if ((uint16_t)dbus > SW_BUS_OC_TRIP_COUNTS)
+                {
+                    if (++s_busOcCnt >= SW_PHASE_OC_TRIP_FILTER) ocTrip = true;
+                }
+                else s_busOcCnt = 0;
+
+                if (ocTrip)
+                {
+                    HAL_MC1PWMDisableOutputs();
+                    garudaData.state = ESC_FAULT;
+                    garudaData.faultCode = FAULT_OVERCURRENT;
+                    garudaData.runCommandActive = false;
+                    LED2 = 0;
+                }
+            }
+        }
 #endif
 
         /* Freeze a snapshot on the first BOARD_PCI transition of this run.
@@ -4298,6 +4373,20 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void)
                 if (garudaData.armCounter >= ARM_TIME_COUNTS)
 #endif
                 {
+                    /* GarudaESE: refuse to drive unless the ATA6847 gate driver
+                     * came up in Normal (SPI handshake + GDU verified at init).
+                     * Otherwise PWM would switch into a dead/half-configured
+                     * driver — fault instead of driving. */
+                    if (!g_ataReady)
+                    {
+                        HAL_MC1PWMDisableOutputs();
+                        garudaData.state = ESC_FAULT;
+                        garudaData.faultCode = FAULT_BOARD_PCI;
+                        garudaData.runCommandActive = false;
+                        LED2 = 0;
+                        break;
+                    }
+
                     /* Armed successfully — transition to ALIGN.
                      * Init before state change: ADC ISR (prio 6) can
                      * preempt Timer1 (prio 5) between the two lines. */

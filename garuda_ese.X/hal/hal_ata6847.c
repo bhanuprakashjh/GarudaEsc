@@ -63,13 +63,18 @@ void HAL_ATA6847_Init(void)
     /* Wake-up control */
     HAL_ATA6847_WriteReg(ATA_WUCR, 0x03);
 
-    /* Current limitation — DISABLED.
-     * Cycle-by-cycle chopping limits prop performance: at 24V with
-     * 8" props, phase current transients during commutation reach
-     * 15-25A even at mid-speed, triggering ILIM and capping eRPM.
-     * VDS short-circuit protection (SCPCR) still active for hardware
-     * safety. Software RECOVER mode handles desync current. */
-    HAL_ATA6847_WriteReg(ATA_ILIMCR, (0 << 7) | (6 << 3) | (0 << 2));
+    /* Current limitation — ENABLED for GarudaESE first-spin protection.
+     * GarudaESE has no dsPIC bus-current sense, so the ATA's own cycle-by-cycle
+     * ILIM chop is a key hardware backstop (it limits inrush/stall current
+     * without latching a fault, complementing the software phase-OC trip).
+     * bit7=1 enables ILIM; ILIMTH = ILIM_DAC (garuda_board.h) sets the chop
+     * threshold. ILIM is masked from nIRQ (SIECER1, below) so chopping is
+     * silent — it caps current but does not fault.
+     * ** TUNE ILIM_DAC ON BENCH **: it may cap eRPM if set too low (on the 24V
+     * bench rig commutation transients hit 15–25A and tripped it at mid-speed);
+     * raise it once the real running current is known. Safety-first default:
+     * keep it on for the first spins. */
+    HAL_ATA6847_WriteReg(ATA_ILIMCR, (1 << 7) | (6 << 3) | (0 << 2));
     HAL_ATA6847_WriteReg(ATA_ILIMTH, ILIM_DAC);
 
     /* Short circuit protection */
@@ -205,7 +210,12 @@ bool HAL_ATA6847_EnterGduNormal(void)
 
     /* Enable all current sense amplifiers (match reference sequence) */
     uint8_t cscr = HAL_ATA6847_ReadReg(ATA_CSCR);
-    cscr |= (0x07 << 5);  /* Set CSA1EN, CSA2EN, CSA3EN */
+    /* GarudaESE: enable only CSA2 (W current) + CSA3 (bus current). CSA1 is
+     * NOT used (phase-U current is sensed by the dsPIC OA1), and per the
+     * ATA6847 datasheet CSA1EN together with GDUCR1.BEMFEN disables BOTH the
+     * BEMF comparators and CSA1 — so leaving CSA1EN=0 keeps the BEMF path free.
+     * (CSA2/CSA3 are independent of BEMF.) Was 0x07<<5 (all three). */
+    cscr |= (0x06 << 5);  /* CSA2EN | CSA3EN */
     HAL_ATA6847_WriteReg(ATA_CSCR, cscr);
 
     /* Verify key registers were written correctly during Init */

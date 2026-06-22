@@ -2,10 +2,11 @@
  * @file bemf_zc.c
  *
  * @brief BEMF zero-crossing detection via ADC software threshold.
- * All functions called exclusively from ADC ISR (24kHz).
+ * All functions called exclusively from ADC ISR (45 kHz).
  *
- * Design: Read floating phase voltage as 12-bit ADC value, compare
- * against Vbus/2 with deadband, per-phase gain/offset correction.
+ * Design: Read floating phase voltage as 12-bit ADC value, compare against the
+ * selected ZC neutral/threshold (ZC_NEUTRAL_MODEL: duty-proportional / Vbus/2 /
+ * computed (Vu+Vv+Vw)/3 / external BEMF_N) with deadband + per-phase gain/offset.
  * Detect edge transitions, filter for noise rejection, compute
  * commutation deadline at 30 degrees after confirmed ZC.
  *
@@ -777,7 +778,7 @@ void BEMF_INTEG_ObserverOnComm(volatile GARUDA_DATA_T *pData, uint16_t stepPerio
 }
 
 /**
- * @brief Observer: run integration accumulation each 24kHz tick during HW ZC.
+ * @brief Observer: run integration accumulation each 45 kHz tick during HW ZC.
  * Extracts the post-ZC integration fast path from BEMF_ZC_Poll().
  * Called every ADC ISR tick when hwzc.enabled.
  *

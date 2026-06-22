@@ -67,6 +67,11 @@ void HAL_MC1PWMEnableOutputs(void);
 void HAL_MC1ClearPWMPCIFault(void);
 void HAL_TrapHandler(void);
 
+/* GarudaESE: ATA6847 gate-driver readiness + last fault diagnostic (defined in
+ * board_service.c). g_ataReady gates the ARM→ALIGN transition. */
+extern volatile bool g_ataReady;
+extern uint8_t       g_ataDiag[8];
+
 #ifdef __cplusplus
 }
 #endif
