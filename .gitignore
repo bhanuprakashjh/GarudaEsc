@@ -1,0 +1,15 @@
+# Build artifacts
+build/
+dist/
+debug/
+.generated_files/
+*.o
+*.d
+*.elf
+*.hex
+*.map
+*.lst
+*.sym
+
+# MPLAB per-user state
+nbproject/private/

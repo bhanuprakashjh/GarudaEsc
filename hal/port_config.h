@@ -1,0 +1,66 @@
+/**
+ * @file port_config.h
+ *
+ * @brief GPIO pin definitions + interface for the **GarudaESE / EV60Y51A** board.
+ *
+ * Target: dsPIC33AK256MC506-E/M7 (64-VQFN) + ATA6847T-5033 gate driver.
+ * Pin map is schematic-verified — see `garuda_board.h` and the
+ * `GarudaESE_PinMap` reference for the full table and confirmation status.
+ *
+ * Ported from the AK512 `dspic33AKESC` 6-step tree; board layer rewritten
+ * for GarudaESE. Function/macro names are preserved so the rest of the
+ * tree (board_service, garuda_service, hal_*) links unchanged.
+ */
+
+#ifndef _PORTCONFIG_H
+#define _PORTCONFIG_H
+
+#include <xc.h>
+#include "../garuda_config.h"
+#include "garuda_board.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ── Control inputs ───────────────────────────────────────────────
+ * GarudaESE has NO on-board buttons. The momentary Start/Stop button maps to
+ * the DShot pin (RD5/J1) for legacy board_service code; the dedicated bench ARM
+ * switch is a toggle on the free TELE_RX pin (RD4/J1), internal pull-up,
+ * switch→GND (closed = armed). There is no direction button — direction is
+ * fixed / GSP-controlled, so SW2 aliases SW1 to keep board_service compiling. */
+#define SW1                     PORTDbits.RD5     /* momentary Start/Stop (DShot pin, J1) */
+#define SW2                     PORTDbits.RD5     /* no direction btn — alias */
+#define BUTTON_START_STOP       SW1
+#define BUTTON_DIRECTION_CHANGE SW2
+
+/* Dedicated ARM toggle switch on RD4 (J1 TELE_RX, free). Active-LOW:
+ * closed (→GND) = armed, open (pull-up) = disarmed. See FEATURE_ARM_SWITCH. */
+#define ARM_SWITCH_GetValue()   (PORTDbits.RD4)   /* 0 = armed (closed) */
+
+/* ── Status LED (D4 orange, RC0/pin39) ────────────────────────────
+ * Single LED on GarudaESE; LED2 aliases LED1 so existing code links. */
+#define LED1                    LATCbits.LATC0
+#define LED2                    LATCbits.LATC0
+
+/* ── ATA6847 nCS (SPI2 chip-select, GPIO RC8) ─────────────────────── */
+#define ATA_nCS                 LATCbits.LATC8
+#define ATA_nCS_Enable()        (ATA_nCS = 0)
+#define ATA_nCS_Disable()       (ATA_nCS = 1)
+/* ATA6847 nIRQ (GPIO in, RC6) */
+#define ATA_nIRQ_GetValue()     (PORTCbits.RC6)
+
+void SetupGPIOPorts(void);
+void MapGPIOHWFunction(void);
+
+void HAL_OA12_Init(void);          /* U/V phase-current internal op-amps (OA1/OA2) */
+
+#if FEATURE_HW_OVERCURRENT
+void HAL_OA3_Init(void);           /* NOT used on GarudaESE (bus I via ATA CSA) */
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* _PORTCONFIG_H */
