@@ -84,38 +84,76 @@ predictor:  EstIα = Fsmopos·EstIα + Gsmopos·(Vα − zα)     // z from prev
             EstIβ = Fsmopos·EstIβ + Gsmopos·(Vβ − zβ)
 surface:    sα = EstIα − Iα ;   sβ = EstIβ − Iβ
 gains:      k1 = k1b + k1a·|ω| ;   k2 = k2b + k2a·ω²        // ω = pll.omega_est
+clamp:      wClamp = max(wClampFloorSTA, 1.3·|ω|·λ)         // λ = focKeUvSRad·1e-6
 STA:        zα = k1·√|sα|·sgn(sα) + wα ;   wα += Ts·k2·sgn(sα)
             zβ = k1·√|sβ|·sgn(sβ) + wβ ;   wβ += Ts·k2·sgn(sβ)
-anti-windup: wα = clamp(wα, ±wClampSTA) ;  wβ = clamp(wβ, ±wClampSTA)
+anti-windup: wα = clamp(wα, ±wClamp) ;     wβ = clamp(wβ, ±wClamp)
 angle:      pll_update(&pll, zα, zβ, Ts)                   // z fed straight in
-            Theta = pll.theta_est − PLL_ANGLE_OFFSET + thetaOffsetSTA
+            Theta = pll.theta_est − PLL_ANGLE_OFFSET
+                    + thetaBaseSTA + thetaKlatSTA·|ω|      // see latency note below
 ```
 
 Conventions / correctness:
 - `zα/zβ` carry the same αβ polarity the LPF output `EalphaFinal/EbetaFinal` did,
   so they feed `pll_update` unchanged (same discriminator sign).
 - `sgnf(0) = 0` (not ±1) — avoids integrator dither at standstill.
-- `thetaOffsetSTA` is a small residual offset knob (PLL one-tick + discretization
-  lag only), **expected ≈ 0** — its being near zero on the bench is itself part
-  of the acceptance test (proves the LPF lag-comp is genuinely unneeded).
+- `wClamp` is computed **per tick** (`1.3·|ω|·λ`, floored at `wClampFloorSTA`) so
+  the anti-windup bound is speed-exact — tight at low speed where a desync-driven
+  windup hurts most, not a single loose scalar sized for top speed. λ is the
+  already-configured `focKeUvSRad` (µV·s/rad → ×1e-6 for SI).
+
+### Latency decomposition (why the STA angle offset is a `thetaBaseSTA` + `thetaKlatSTA·|ω|` pair, not a constant≈0)
+
+The baseline's `ThetaBase + ThetaK·|ω|` was absorbing **two physically distinct
+delays**, only one of which STA deletes:
+
+1. **LPF group delay** — deleted by STA (no filter). This was the constant part
+   and part of the ω-slope.
+2. **Sample→apply pipeline + PLL discretization** — **not** deleted. STA keeps a
+   PLL and the same ADC→PWM pipeline.
+
+The *geometric* sample→apply latency is **already compensated downstream and
+observer-agnostically**: `an1078_motor.c:1077` advances the output angle by
+`AN_DELAYCOMP_FRAC · ω · Ts` (`AN_DELAYCOMP_FRAC = 1.5`) before the inverse Park,
+in CL only. That term is unchanged by this work and stays.
+
+Numeric check at the 76.5 k ceiling (~8000 rad/s elec, `AN_TS ≈ 22.2 µs` @ 45 kHz):
+downstream geometric comp = `1.5·ω·Ts ≈ 15°`; baseline observer term
+`ThetaK·ω = 8.0e-5·8000 ≈ 37°`. The observer term is larger than the geometric
+comp — confirming `ThetaK` was **LPF-lag + PLL-discretization residual**, not pure
+geometric latency. Under STA the LPF-lag component vanishes, leaving only the
+PLL's ~1-tick discretization residual.
+
+Therefore the STA angle offset is a **pair**:
+- `thetaBaseSTA` — constant; expected **≈ 0** (LPF-DC-lag and Rs/Ls-model bias gone).
+- `thetaKlatSTA·|ω|` — ω-proportional residual; expected **small, slope ≲ 1·Ts**
+  (PLL one-tick discretization; the geometric part is already covered by
+  `AN_DELAYCOMP`), i.e. `thetaKlatSTA ≈ 0.5–1·Ts ≈ 1.1e-5…2.2e-5`, well below the
+  baseline `ThetaK = 8.0e-5`. Speed-exact by construction.
 
 Deleted vs baseline: both LPFs, `Kslf`/`KslfScale`/`KslfMin` scheduling, and the
-`ThetaBase`/`ThetaK` lag-compensation.
+`ThetaBase`/`ThetaK` LPF-lag compensation. **Not** deleted: the downstream
+`AN_DELAYCOMP` geometric advance (observer-agnostic).
 
 ---
 
 ## 5. Struct additions to `AN_SMC_T`
 
 ```c
-float wIntA, wIntB;   /* STA integral state (converges to EMF)   [V]  */
-float k1, k2;         /* STA gains (recomputed per tick from schedule)*/
-float wClampSTA;      /* anti-windup clamp on wInt (~1.3× E_ex_max)   */
-float thetaOffsetSTA; /* small residual angle offset, expected ≈0 [rad]*/
+float wIntA, wIntB;    /* STA integral state (converges to EMF)   [V]  */
+float k1, k2;          /* STA gains (recomputed per tick from schedule)*/
+float wClampFloorSTA;  /* anti-windup floor; clamp=max(floor,1.3|ω|λ)[V]*/
+float thetaBaseSTA;    /* residual const angle offset, expected ≈0 [rad]*/
+float thetaKlatSTA;    /* residual ω-slope (PLL discretization) [rad·s] */
 ```
 
-`AN_SMCReset` additionally sets `wIntA = wIntB = 0` (clean integrators at each
-OL→CL handoff and stop). Existing fields (`Fsmopos`, `Gsmopos`, `pll`, speed
-accumulators) are shared unchanged.
+`AN_SMCReset` additionally sets `wIntA = wIntB = 0`. **Reset timing (verified):**
+`AN_SMCReset` is called from `an_do_control()`'s open-loop `changeMode` first-tick
+block (`an1078_motor.c:322`) — i.e. at **motor start / OL-ramp begin, not at the
+CL switch**. STA therefore converges in shadow through the whole open-loop ramp,
+so `wInt` already holds the EMF at the handover instant (no re-acquire transient).
+Existing fields (`Fsmopos`, `Gsmopos`, `pll`, speed accumulators) are shared
+unchanged.
 
 ---
 
@@ -124,16 +162,18 @@ accumulators) are shared unchanged.
 - Implement the adaptive-law **structure** `k1 = k1b + k1a·|ω|`,
   `k2 = k2b + k2a·ω²`, but **default the slope terms `k1a = k2a = 0`** → boots as
   a plain fixed-gain STA (simplest bring-up).
-- All six knobs — `k1b, k1a, k2b, k2a, wClampSTA, thetaOffsetSTA` — are **live GSP
-  params**, reusing the same live-tune plumbing as `an1078KslideMv`/`ThetaBase`
-  (`an_tune_*()` helpers reading `gspParams` each tick). Tune on the bench with no
-  reflash.
+- The seven knobs — `k1b, k1a, k2b, k2a, wClampFloorSTA, thetaBaseSTA,
+  thetaKlatSTA` — are **live GSP params**, reusing the same live-tune plumbing as
+  `an1078KslideMv`/`ThetaBase` (`an_tune_*()` helpers reading `gspParams` each
+  tick). Tune on the bench with no reflash.
 - Initial seeds from the STA gain recipe (Levant-type sufficient conditions) at
-  the U3 worst corner: `C ≥ max|dE/dt|/Ld` at 76 k eRPM + max electrical
-  acceleration + any FW `|i_d|`; `k2 = 1.2·C`; back out `k1` from
-  `k1² > 4·C·(k2+C)/(k2−C)`. Discretization sanity: keep `k2·Ts < 0.05·E_ex_max`.
-- `wClampSTA ≈ 1.3 × E_ex_max(ω)` where `E_ex_max = ω·λ` for the SPM case (λ is the
-  already-configured `focKeUvSRad`).
+  the U3 worst corner: `C ≥ max|dE/dt|/Ls` (**Ls**, the same `AN_MOTOR_LS`
+  already in `Fsmopos/Gsmopos` — this is a no-EEMF build, do not write Ld) at
+  76 k eRPM + max electrical acceleration + any FW `|i_d|`; `k2 = 1.2·C`; back out
+  `k1` from `k1² > 4·C·(k2+C)/(k2−C)`. Discretization sanity: keep
+  `k2·Ts < 0.05·E_max` where `E_max = ω·λ` (SPM, λ = `focKeUvSRad`).
+- `wClamp` is computed per tick as `max(wClampFloorSTA, 1.3·|ω|·λ)` — speed-exact
+  anti-windup, one extra multiply, tight at low speed.
 
 ---
 
@@ -167,15 +207,23 @@ annotated to note that **in an STA build** those columns mean z / s.
 1. Flash STA hex, low-throttle spin → confirm handover + lock; `sα/sβ` a tight
    zero-mean band.
 2. Sweep to the 76 k ceiling. **Acceptance tests:** (a) the >45 k period-2 limit
-   cycle is gone *without* ff-taper hacks; (b) lock holds with
-   `thetaOffsetSTA ≈ 0` (LPF lag-comp proven unneeded).
+   cycle is gone *without* ff-taper hacks; (b) lock holds with **`thetaBaseSTA ≈ 0`
+   and a small `thetaKlatSTA` (slope ≲ 1·Ts, well under the baseline `ThetaK`)** —
+   the constant + Rs/Ls-model lag are proven gone; only the speed-exact PLL
+   discretization residual remains. (This is the corrected claim — *not*
+   "offset ≈ 0"; expecting a pure zero at top would fail spuriously since the
+   ω-proportional PLL/pipeline residual is real.)
 3. Load-reject + thermal run → compare directly against the boundary baseline
    CSVs captured on 2026-07-14 (session `gui_auto_20260714_205852`).
-4. Failure diagnostics (§6 recipe): limit cycle at top ⇒ `k2` too small;
-   broadband θ noise at low speed ⇒ gains too large (shrink `k1a`/`k2a`).
+4. Failure diagnostics: limit cycle at top ⇒ `k2` too small **OR** `k2·Ts` grown
+   too large under the ω² adaptive law (a discrete STA can self-oscillate) —
+   **verify the `k2·Ts < 0.05·E_max` bound at the 76 k corner with the adaptive
+   slopes engaged, not just at the fixed-gain bring-up values**; broadband θ noise
+   at low speed ⇒ gains too large (shrink `k1a`/`k2a`).
 
 Success = STA holds the full idle→76 k envelope at least as cleanly as the
-boundary baseline, with the >45 k roughness reduced and the lag-comp knobs at ~0.
+boundary baseline, with the >45 k roughness reduced, `thetaBaseSTA ≈ 0`, and
+`thetaKlatSTA` a small speed-exact slope.
 If STA wins the bench race, a later change may promote it to default; that
 promotion is out of scope for this spec.
 
