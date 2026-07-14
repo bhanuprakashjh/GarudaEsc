@@ -4,11 +4,11 @@
  * @brief Motor-specific and FOC algorithm parameters for Project Garuda.
  *
  * Motor profiles selected by MOTOR_PROFILE in garuda_config.h:
- *   0 = Hurst DMB0224C10002  (5PP, 24V, 2.54 ohm, dev bench)
+ *   0 = Hurst DMB2424B10002  (5PP, 24V, 0.534 ohm, dev bench)
  *   1 = A2212 1400KV          (7PP, 12V, 0.065 ohm, drone)
- *   2 = Flycat 5010-750KV     (7PP, 14.8V, 0.08 ohm, heavy-lift)
+ *   2 = 2810 1350KV           (7PP, 24V, 0.022 ohm, bench)
  *
- * Switching frequency: 24 kHz (Ts = 41.67 us)
+ * Switching frequency: 45 kHz (Ts = 22.2 us)
  *
  * Component: FOC PARAMETERS
  */
@@ -527,9 +527,9 @@
  *   We add 0.5 × dt advance to observer angle for commutation. */
 #define FOC_PHASE_LAG_COMP  0.5f
 
-/* -- Timing (24 kHz switching frequency) ------------------------- */
+/* -- Timing (dormant FOC engine; live board switching is 45 kHz) --- */
 
-/** Fast control loop sample period (s) -- 1/24000 = 41.67 us */
+/** Fast control loop sample period (s) -- dormant engine tick 1/24000 = 41.67 us */
 #define FOC_TS_FAST_S           (1.0f / 24000.0f)
 /** Slow loop divisor: 24 ticks -> 1 kHz slow loop */
 #define FOC_SLOW_DIV            24
@@ -725,12 +725,11 @@
 /** Throttle-at-zero duration before ARMED -> STARTUP (ms). */
 #define FOC_ARM_TIME_MS         500U
 
-/* -- Current Sensing Hardware (MCLV-48V-300W + DIM EV68M17A) ------
- *   Shunt: 3 mohm low-side (on MCLV-48V-300W board, NOT on DIM)
- *   Op-amp: DIM differential amp (U1A/U1B), gain = RF/RIN = 4990/200 = 24.95
- *     I_peak = Vref_half/(Gain*Shunt) = 1.65/(24.95*0.003) = 22.04 A
- *     Matches AN1292 MC1_PEAK_CURRENT = 22.0 A
- *   Polarity: inverting topology — raw_to_amps() negates.
+/* -- Current Sensing Hardware (EV60Y51A / GarudaESE) --------------
+ *   Shunt: 2 mohm low-side (EV60Y51A "BRIDGE & SENSING")
+ *   Op-amp: dsPIC OA, NON-INVERTING gain = 1 + Rf/Rin = 1 + 12k/(330+470) = 16
+ *     I_peak = Vref_half/(Gain*Shunt) = 1.65/(16*0.002) = 51.56 A
+ *   Polarity: raw_to_amps() negates to match the FOC sign convention.
  *   ADC: 3.3V reference, 12-bit (0-4095), mid-point ~2048
  * ---------------------------------------------------------------- */
 #define SHUNT_RESISTANCE_OHM    0.002f   /* GarudaESE: 2 mOhm (MCLV was 3 mOhm) */
@@ -746,14 +745,13 @@
 #define ADC_MIDPOINT            2048
 
 /** Amps per ADC count (signed, centred at zero-current offset).
- *  I_peak = Vref_half/(Gain*Shunt) = 1.65/(24.95*0.003) = 22.04 A
- *  Scale = Vref/(FS*Gain*Shunt) = 3.3/(4095*24.95*0.003) = 0.01077 A/count */
+ *  I_peak = Vref_half/(Gain*Shunt) = 1.65/(16*0.002) = 51.56 A
+ *  Scale = Vref/(FS*Gain*Shunt) = 3.3/(4095*16*0.002) = 0.02518 A/count */
 #define CURRENT_SCALE_A_PER_COUNT \
     (ADC_VREF_V / (ADC_FULL_SCALE_F * OPAMP_GAIN * SHUNT_RESISTANCE_OHM))
 
-/* -- Bus Voltage Sensing (MCLV-48V-300W board) --------------------
- *   Calibrated: 12.1V actual / 8.07V displayed = correction 1.50
- *   x original 15.47 = 23.2
+/* -- Bus Voltage Sensing (EV60Y51A / GarudaESE) -------------------
+ *   Divider: 24k/2k = 13:1 -> 42.9 V full-scale.
  * ---------------------------------------------------------------- */
 #define VBUS_DIVIDER_RATIO      13.0f    /* GarudaESE: 24k/2k -> 42.9 V FS (MCLV was 23.2) */
 #define VBUS_SCALE_V_PER_COUNT  (ADC_VREF_V * VBUS_DIVIDER_RATIO / ADC_FULL_SCALE_F)

@@ -293,7 +293,7 @@ static void foc_startup_reset(void)
 
 static inline float counts_to_amps_cal(uint16_t raw, uint16_t offset)
 {
-    /* Negate: OA1/OA2 inverting topology on MCLV-48V-300W DIM.
+    /* Negate: OA1/OA2 inverting topology on EV60Y51A / GarudaESE.
      * AN1292 reference uses (HALF_ADC_COUNT - ADC_DATA) for same reason. */
     return -((float)(int16_t)(raw - offset)) * CURRENT_SCALE_A_PER_COUNT;
 }
@@ -346,12 +346,12 @@ static uint16_t s_if_calCtr;
 /* Self-contained ADC conversions: the FEATURE_FOC counts_to_* helpers, the
  * calibrated current offset, AND garuda_foc_params.h itself are all compiled
  * out in the pure 6-step build, so define the scales here from the documented
- * shunt/divider values (shunt 3mΩ × OA gain 24.95, Vref 3.3, FS 4095, Vbus
- * divider 23.2). Fixed 2048 bias matches the 6-step convention; negation
+ * shunt/divider values (shunt 2mΩ × OA gain 16, Vref 3.3, FS 4095, Vbus
+ * divider 13). Fixed 2048 bias matches the 6-step convention; negation
  * matches the FOC sign convention the reused gains were tuned with. */
 #define IF_ADC_MIDPOINT   2048.0f
-#define IF_CURRENT_SCALE  (3.3f / (4095.0f * 0.002f * 36.3636f))  /* A per count (GarudaESE OA 36.36x/2m) */
-#define IF_VBUS_SCALE     (3.3f * 23.2f / 4095.0f)               /* V per count */
+#define IF_CURRENT_SCALE  (3.3f / (4095.0f * 0.002f * 16.0f))  /* A per count (GarudaESE OA 16x / 2mΩ) */
+#define IF_VBUS_SCALE     (3.3f * 13.0f / 4095.0f)               /* V per count */
 /* Sign for the MON phase-current channels. The 6-step path reads them as
  * (raw-2048) POSITIVE (no negation, unlike the FOC MAIN channels). Wrong sign
  * = positive feedback = runaway → voltage clamp → full-scale current spike.
@@ -1481,8 +1481,8 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
          *
          * Reuses the FOC-oriented SCOPE_SAMPLE_T fields:
          *   ia  = Phase A current (OA1 → AD1CH3) in mA     [accurate]
-         *   ib  = Phase B current (OA2 → AD2CH2) in mA     [broken on this
-         *         MCLV+EV68M17A combo — reads ~0; kept as sanity channel]
+         *   ib  = Phase B current (OA2 → AD2CH2) in mA     [on GarudaESE
+         *         Phase B (=V) is a real dedicated channel, not muxed]
          *   id  = Bus current (OA3/M1_IBUS_FILT) in mA     [REPURPOSED
          *         for 6-step; what U25B actually trips on]
          *   vd  = Vbus in centivolts (raw/10, approx)
@@ -1493,7 +1493,8 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
          *   flags:  bit0=HWZC enabled, bit1=fault
          *   state:  garudaData.state
          *
-         * Scale (shared with phase-current monitor): ~93 ADC counts/A, bias 2048.
+         * Scale: the 93 counts/A here is the ATA bus-CSA figure; the gain-16
+         * phase channel's counts/A is not yet characterised (TUNE ON BENCH).
          * mA = (raw - 2048) × 1000 / 93. Clamped to int16 range.
          */
         {

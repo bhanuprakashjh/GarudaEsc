@@ -1592,9 +1592,6 @@ extern "C" {
 
 #endif /* FEATURE_HW_OVERCURRENT */
 
-/* Comparator DAC reference for overcurrent fault (from reference) */
-#define CMP_REF_DCBUS_FAULT        2048        /* Default DAC reference, midscale */
-
 /* Phase 2: BEMF Closed-Loop ZC Detection Parameters (ADC threshold method) */
 #if FEATURE_BEMF_CLOSED_LOOP
 /* Core ZC detection */
@@ -1609,7 +1606,6 @@ extern "C" {
 /* P0: ZC_DUTY_THRESHOLD_SHIFT replaced by exact ZC_DUTY_DIVISOR in
  * garuda_calc_params.h. Old >>18 had +1.7% bias (2^18=262144 vs
  * 2*LOOPTIME_TCY=266636). See adaptive ZC threshold plan. */
-/* #define ZC_DUTY_THRESHOLD_SHIFT 18 */
 #define ZC_ADC_DEADBAND         4       /* Reduced from 10: tighter deadband for faster ZC crossing */
 #define ZC_AD2_SETTLE_SAMPLES   2       /* Increased from 1: extra settle for AD2 mux (steps 1,3,4) */
 
@@ -1698,8 +1694,6 @@ extern "C" {
     ((uint32_t)((uint64_t)C0_MEAS_TIMEOUT_MS * SCCP_CLOCK_HZ / 1000ULL))
 
 /* IFS clear method — MUST be set after Milestone 0 probe */
-/* #define IFS_IS_W1C  1 */  /* W1C: write 1 clears flag */
-/* #define IFS_IS_W1C  0 */  /* Direct: write 0 clears flag */
 #ifndef IFS_IS_W1C
 #error "IFS_IS_W1C not defined — run Milestone 0 probe first"
 #endif

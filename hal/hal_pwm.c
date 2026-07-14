@@ -244,6 +244,12 @@ void InitPWMGenerator1(void)
 
     /* Fault PCI — external overcurrent via PCI8 pin (RB11/RP28).
      *
+     * NOTE [GarudaESE]: Fault-PCI is physically absent on the AK256MC506, and
+     * FEATURE_HW_OVERCURRENT=0 on this board. Every FPCI register write below
+     * is commented out ("[GarudaESE] FPCI removed"). This block is retained
+     * only as documentation of the removed MCLV Fault-PCI path — it describes
+     * no active protection on this hardware.
+     *
      * LEB-gated acceptance: the FPCI input is only accepted when LEB is LOW
      * (AQSS=010, AQPS=1). During the LEB window after each PWM edge (see
      * PGxLEB below), the board's U25B analog comparator ringing / FET

@@ -153,7 +153,7 @@ int main(void)
     /* Bring-up BUILD SIGNATURE (2026-07-10): five fast LED blinks at boot,
      * BEFORE the heartbeat starts. Lets the bench distinguish this firmware
      * from any older build with no UART needed — old builds go straight to
-     * the heartbeat. Remove after first-spin bring-up. */
+     * the heartbeat. Permanent build-signature blink. */
     {
         uint8_t i;
         for (i = 0; i < 10; i++) {          /* 5 on/off cycles */

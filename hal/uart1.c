@@ -4,7 +4,7 @@
  *
  * @brief This module configures the UART1 
  * 
- * Definitions in this file are for dsPIC33AK128MC106
+ * Definitions in this file are for dsPIC33AK256MC506 (GarudaESE)
  *
  * Component: UART1
  *
@@ -16,7 +16,7 @@
 /*******************************************************************************
 * SOFTWARE LICENSE AGREEMENT
 * 
-* © [2024] Microchip Technology Inc. and its subsidiaries
+* ï¿½ [2024] Microchip Technology Inc. and its subsidiaries
 * 
 * Subject to your compliance with these terms, you may use this Microchip 
 * software and any derivatives exclusively with Microchip products. 
@@ -121,7 +121,7 @@ void UART1_Initialize (void)
     U1CONbits.RXEN = 1;
     /*  UART Mode bits
         1111 = Smart card 
-        1110 = IrDA®(2)
+        1110 = IrDAï¿½(2)
         1100 = LIN Master/Slave
         1011 = LIN Slave-Only
         1010 = DMX(2)

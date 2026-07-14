@@ -84,19 +84,6 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
         dst->stepPeriod = 0u;   /* IDLE/ARMED/DETECT/ALIGN: not yet spinning */
     }
 #endif
-#if FEATURE_IBUS_PROBE
-    /* DIRECT CMP3-output probe: surface the CMP3 rising-edge fire-RATE (latched
-     * via _CMP3IF in the ADC ISR) in the eRPM column (host shows eRPM =
-     * 450000/stepPeriod). This is the comparator itself, NOT the CLPCI chop:
-     *   eRPM non-zero as pot rises  -> CMP3 sees the current (INPSEL/OA3 OK)
-     *   eRPM stays 0 at full pot    -> CMP3 blind (DAC forced below rest, so
-     *                                  this means the input mux/routing is wrong)
-     * Pair with Ibus: eRPM up + Ibus collapsing = the chop itself also works. */
-    {
-        extern volatile uint32_t g_cmp3FireCount;   /* live CMP3 CMPSTAT level */
-        dst->stepPeriod = (g_cmp3FireCount != 0u) ? 45u : 0u;  /* eRPM 10000 / 0 */
-    }
-#endif
 #if FEATURE_FOC_AN1078
     /* FOC has no 6-step stepPeriod, so the host's eRPM column (text row /
      * TimeChart use eRPM = PWMFREQUENCY_HZ*10 / stepPeriod) reads 0 even while
@@ -203,9 +190,11 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
     dst->focOffsetIb = src->focOffsetIb;
 #endif
 
-    /* BRING-UP (remove after first spin): repurpose the v3-only observer
-     * slots for ISR/trigger liveness — read LIVE here in main-loop context,
-     * so they stay truthful even when the ADC ISR is dead.
+    /* LIVENESS FORENSICS: in the AN1078 build the v3-only observer slots are
+     * unused (FEATURE_FOC_V3=0, so the assignments above are compiled out), so
+     * repurpose them for ISR/trigger liveness — read LIVE here in main-loop
+     * context, so they stay truthful even when the ADC ISR is dead. Permanent
+     * diagnostic (the GUI decodes these slots as liveness, not observer state).
      *   smoResidual   = ADC-ISR entry count
      *   pllInnovation = flag word: IE | IF<<1 | AD1.ON<<2 | AD1.ADRDY<<3
      *                   | PG1.ON<<4
@@ -289,7 +278,9 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
      * tick-aligned (same PG1TRIGA) with focIa/focIb. Offline: regress
      * iw_ref = -(focIa + focIb) against this raw to recover the Iw gain,
      * sign, and offset. Decoded to CSV column `fall_off_max`; no snapshot-
-     * format change, no decoder change. Remove after A1 lands. */
+     * format change, no decoder change. A1 has landed — this now streams the
+     * best-2-of-3 clarke_drop alongside raw Iw (see below); kept as live bench
+     * telemetry. */
     {
         extern volatile uint16_t g_iwRawCal;
         /* fallOffBemfMin doubles as the decoder's "has-samples" guard: it
@@ -339,41 +330,12 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
 
     /* Speed PI telemetry (zero unless FEATURE_SPEED_PI=1; the struct
      * fields exist either way, sourced from GARUDA_DATA_T.speedPi). */
-#if GARUDA_TARGET_AK512 && defined(AK512_BRINGUP_DIAG)
-    /* TEMPORARY bring-up diagnostics riding the idle speed-PI telemetry:
-     *   spiTarget  = AD1CH3DATA  (VB pwm-synced raw — the 45kHz ISR channel)
-     *   spiError   = AD2CH1DATA  (POT raw)
-     *   spiOutput  = flag word: [13:8]=AD1CH3 TRG1SRC, bit5=PG1 ON,
-     *                bit4..2=AD3/AD2/AD1 ADRDY, bit1=_AD1CH3IE, bit0=_AD1CH3IF
-     *   spiInteg   = AD3CH2DATA  (VBUS raw)
-     * Remove before merge. */
-    dst->speedPiEnabled        = 0xDDu;   /* marker: diagnostics active */
-    dst->speedPiZcsSinceEnable = src->hwzc.dbgPiNoCap;        /* silent PI events */
-    dst->speedPiTarget         = (int32_t)src->hwzc.dbgLastCapPm; /* cap pos ‰ of T */
-    dst->speedPiLastError      = (int32_t)src->hwzc.dbgPiCrossSector;
-    dst->speedPiOutputDuty     = (uint16_t)(
-                                 ((uint16_t)PG1STATbits.SEVT    << 12)
-                               | ((uint16_t)PG1STATbits.FFEVT   << 11)
-                               | ((uint16_t)PG1STATbits.CLEVT   << 10)
-                               | ((uint16_t)PG1STATbits.FLT1EVT << 9)
-                               | ((uint16_t)PG1STATbits.SACT    << 8)
-                               | ((uint16_t)PG1STATbits.FFACT   << 7)
-                               | ((uint16_t)PG1STATbits.CLACT   << 6)
-                               | ((uint16_t)PG1STATbits.FLT1ACT << 5)
-                               | ((uint16_t)AD3CONbits.ADRDY << 4)
-                               | ((uint16_t)AD2CONbits.ADRDY << 3)
-                               | ((uint16_t)AD1CONbits.ADRDY << 2)
-                               | ((uint16_t)_AD1CH3IE << 1)
-                               | (uint16_t)_AD1CH3IF);
-    dst->speedPiIntegratorF    = (float)(uint32_t)AD3CH2DATA;
-#else
     dst->speedPiEnabled        = src->speedPi.enabled ? 1u : 0u;
     dst->speedPiZcsSinceEnable = src->speedPi.zcsSinceEnable;
     dst->speedPiTarget         = src->speedPi.lastTarget;
     dst->speedPiLastError      = src->speedPi.lastError;
     dst->speedPiOutputDuty     = src->speedPi.outputDuty;
     dst->speedPiIntegratorF    = src->speedPi.integratorF;
-#endif
 }
 
 #endif /* FEATURE_GSP */

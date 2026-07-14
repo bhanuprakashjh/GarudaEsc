@@ -221,7 +221,7 @@ static const GSP_PARAMS_T profileDefaults[7] = {
          * defaults are the actual runtime source (the .h #defines aren't
          * read at runtime — BuildFocMotorParams pulls from gspParams).
          * Old values (Rs=50, Ls=25) were phase-phase misapplied. */
-        .focRsMilliOhm       = 45,   /* 2026-07-11 MCLV-port 25->45: Microchip tmotor_u3_kv700.h measured per-phase Rs. MCLV-confirmed safe. (inline note below is stale: value is now 45, not 25.) */     /* 2026-07-09 U3 KV700: datasheet Rm=50mΩ pp /2 = 25mΩ per-phase (was 22, 2810). Feeds SMO plant via an1078_smc.c. GUI-live-tunable. */
+        .focRsMilliOhm       = 45,   /* 2026-07-11 MCLV-port 25->45: Microchip tmotor_u3_kv700.h measured per-phase Rs. MCLV-confirmed safe. Feeds SMO plant via an1078_smc.c. GUI-live-tunable. */
         .focLsMicroH          = 18,     /* 2026-07-09 U3 KV700: 18µH from 5055 ~580KV sibling (datasheet omits L; same 12N14P class). Was 10 (2810). SMO Gsmopos=Ts/Ls. GUI-live-tunable. */
         .focKeUvSRad          = 1125,   /* 2026-07-09 700KV: 60/(√3×2π×700×7)=0.001125 V·s/rad (was 583 for 1350KV 2810). Feeds SMO handoff BEMF gate (an1078_motor.c:562). GUI-live-tunable. REVERT TO 583 for the 2810. */
         .focVbusNomCentiV     = 2400,   /* 24V nominal */
@@ -520,7 +520,7 @@ static const GSP_PARAMS_T profileDefaults[7] = {
 /* Max safe mA for OC params: DAC ceiling 4095 counts = 3299 mV */
 #define OC_MAX_SAFE_MA  22000
 
-/* ── Descriptor table (31 entries) ───────────────────────────────────── */
+/* ── Descriptor table (56 entries) ───────────────────────────────────── */
 
 static const PARAM_DESCRIPTOR_T paramDescriptors[] = {
     /* Stage 1: Startup & Ramp (group 0) */
@@ -837,7 +837,7 @@ void GSP_RecomputeDerived(void)
     if (d->vbusUvStartupAdc < 200) d->vbusUvStartupAdc = 200;
 }
 
-/* ── Cross-parameter validation (bilateral, 10 checks) ──────────────── */
+/* ── Cross-parameter validation (bilateral, 12 checks) ──────────────── */
 
 static PARAM_RESULT_T CrossValidate(uint16_t id, uint32_t value)
 {

@@ -681,7 +681,8 @@ typedef struct
 
 #if !FEATURE_FOC && !FEATURE_FOC_V2 && !FEATURE_FOC_V3 && !FEATURE_FOC_AN1078
     /* 6-step diagnostic phase-current monitor (AD1CH3=Ia, AD2CH2=Ib via
-     * PG1TRIGA @ 24 kHz). Scale ~93 counts/A, bias ~2048 (0 A).
+     * PG1TRIGA @ 45 kHz). The ~93 counts/A here is the ATA bus-CSA figure; the
+     * gain-16 phase channel's counts/A is not yet characterised. Bias ~2048 (0 A).
      *
      * iaMax/iaMin/ibMax/ibMin are RESET each telemetry snapshot by
      * gsp_snapshot.c — so each row reflects the 20 ms window peaks,

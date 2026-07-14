@@ -6,8 +6,9 @@
  * Provides typed parameter struct (GSP_PARAMS_T), precomputed derived
  * values for ISR use (GSP_DERIVED_T), and table-driven validation.
  *
- * 48 tunables: 8 Stage 1 + 11 motor profile + 12 tuning + 17 FOC params.
- * 4 built-in profiles (Hurst, A2212, 5010, 5055) + 1 custom.
+ * 56 tunables: 8 Stage 1 + 11 motor profile + 12 tuning + 17 FOC
+ * + 4 AN1078 SMC + 2 I-f + 2 morph-lock params.
+ * 7 built-in profiles (Hurst, A2212, 5010, 5055, Cobra, XRotor, VEX) + 1 custom.
  *
  * Component: GSP
  */
@@ -111,7 +112,7 @@ extern "C" {
 #define PARAM_GROUP_FOC_STARTUP  10
 #define PARAM_GROUP_AN1078       11
 
-/* ── Runtime parameter struct (31 fields) ────────────────────────────── */
+/* ── Runtime parameter struct (~56 fields) ───────────────────────────── */
 
 typedef struct {
     /* Stage 1 (existing 8) */
@@ -292,13 +293,13 @@ uint8_t GSP_ParamGetCount(void);
 const PARAM_DESCRIPTOR_T *GSP_ParamGetDescriptor(uint8_t idx);
 
 /**
- * Load a built-in profile (0-2) or adopt current values as custom (3).
+ * Load a built-in profile (0-6) or adopt current values as custom (7).
  * Recomputes derived values. Returns false if id is out of range.
  */
 bool GSP_ParamsLoadProfile(uint8_t profileId);
 
 /**
- * @return Currently active profile ID (0-4).
+ * @return Currently active profile ID (0-7).
  */
 uint8_t GSP_ParamsGetActiveProfile(void);
 
@@ -356,7 +357,7 @@ _Static_assert(sizeof(GSP_CONFIG_PERSIST_V2_T) == 48, "V2 persist must be 48 byt
 /* V3 packed persist struct — extends V2 with FOC motor model params */
 typedef struct __attribute__((packed)) {
     /* --- V2 portion (bytes 0-47, identical layout) --- */
-    uint8_t  schemaMarker;          /* 0xA3 = V3 */
+    uint8_t  schemaMarker;          /* 0xA7 = V3 */
     uint8_t  activeProfile;
     uint8_t  rampDutyPct;
     uint8_t  clIdleDutyPct;
@@ -430,9 +431,10 @@ _Static_assert(sizeof(GSP_CONFIG_PERSIST_V1_T) == 32, "V1 persist must be 32 byt
 
 /**
  * Load params from EEPROM config reserved bytes.
- * Supports V1 (0xA1) and V2 (0xA2) schemas.
- * V1: loads 8 Stage 1 params, 23 new get defaults from active profile.
- * V2: loads all 31 params + activeProfile.
+ * Supports V1 (0xA1), V2 (0xA2), and V3 (0xA7) schemas.
+ * V1: loads 8 Stage 1 params, the rest get defaults from active profile.
+ * V2: loads the 31 6-step params + activeProfile; FOC params get profile defaults.
+ * V3: additionally loads the FOC motor-model params.
  *
  * @param cfg  Pointer to loaded GARUDA_CONFIG_T
  */

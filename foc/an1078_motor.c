@@ -959,9 +959,10 @@ void AN_MotorFastTick(AN_Motor_T *m,
 #if !AN_OPENLOOP_VF && !AN_FOC_IF_ONLY
     /* GAIN-16 FIX: the observer plant (Gsmopos=Ts/Ls) + its tuning (Kslide,
      * MaxSMCError) were validated against the OLD fake-scale currents. i_alpha/
-     * i_beta are now TRUE amps (k× larger), so scale them back to the observer's
-     * validated units. Set AN_OBS_CURRENT_COMPAT=1.0 (+ MaxSMCError×k) for a
-     * physically-consistent observer once bench-verified. Drive/telemetry stay true. */
+     * i_beta are now TRUE amps (k× larger). AN_OBS_CURRENT_COMPAT was retired to
+     * 1.0 (2026-07-14, paired with MaxSMCError×k) so the observer runs on true
+     * amps — the multiply below is now a no-op revert knob (set 0.43991 to
+     * restore the old validated units). Drive/telemetry stay true. */
     m->smc.Ialpha = m->i_alpha * AN_OBS_CURRENT_COMPAT;
     m->smc.Ibeta  = m->i_beta  * AN_OBS_CURRENT_COMPAT;
     /* 2026-07-11 DEAD-TIME COMP (bench-confirmed -36deg no-load observer angle

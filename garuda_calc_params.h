@@ -418,9 +418,9 @@ _Static_assert(MORPH_WINDOW_MIN_TICKS >= 5,
 
 /* ADC ISR tick <-> SCCP2 tick conversion.
  * 1 ADC tick = 1/PWMFREQUENCY_HZ seconds = 1e8/PWMFREQUENCY_HZ SCCP2 ticks.
- * At 24kHz: 1 ADC tick = 100000000/24000 = 4166 SCCP2 ticks.
+ * At 45kHz: 1 ADC tick = 100000000/45000 = 2222 SCCP2 ticks.
  * CAUTION: HWZC_SCCP2_TO_ADC truncates to uint16_t via integer division.
- * For stepPeriodHR < 4166, result is 0. Callers MUST clamp to >= 1 before
+ * For stepPeriodHR < 2222, result is 0. Callers MUST clamp to >= 1 before
  * using as a divisor. */
 #define HWZC_ADC_TO_SCCP2(t)   ((uint32_t)(t) * (HWZC_TIMER_HZ / PWMFREQUENCY_HZ))
 #define HWZC_SCCP2_TO_ADC(t)   ((uint16_t)((t) / (HWZC_TIMER_HZ / PWMFREQUENCY_HZ)))
@@ -548,11 +548,6 @@ _Static_assert(OC_CMP3_HANDOFF_DAC > OC_BIAS_COUNTS,
 _Static_assert(OC_CMP3_DAC_VAL < 4096, "CMP3 operational threshold exceeds 12-bit DAC range");
 _Static_assert(OC_CMP3_STARTUP_DAC < 4096, "CMP3 startup threshold exceeds 12-bit DAC range");
 _Static_assert(OC_FAULT_ADC_VAL < 4096, "Software fault threshold exceeds ADC range");
-/* 2026-06-13: temporarily relaxed for the HW-chop isolation test — the SW soft
- * limit is deliberately set ABOVE the CMP3 chop so the hardware limiter acts
- * alone. Restore this assert when the OC thresholds go back to normal order.
- * _Static_assert(OC_SW_LIMIT_ADC < OC_CMP3_DAC_VAL,
- *                "Software soft limit must be below CMP3 operational threshold"); */
 _Static_assert(OC_CMP3_DAC_VAL <= OC_CMP3_STARTUP_DAC,
                "Operational threshold must be <= startup threshold");
 #if OC_PROTECT_MODE == 2
@@ -580,8 +575,7 @@ _Static_assert(RAMP_CURRENT_GATE_ADC < OC_CMP3_DAC_VAL,
 #if FEATURE_FOC || FEATURE_FOC_V2
 /* FOC current/voltage scaling now in garuda_foc_params.h:
  * CURRENT_SCALE_A_PER_COUNT, VBUS_SCALE_V_PER_COUNT, ADC_MIDPOINT.
- * These are derived from the board shunt (3 mohm) and DIM diff-amp gain (24.95x).
- * OA3 (bus current for FEATURE_HW_OVERCURRENT) uses the same shunt/gain path.
+ * These are derived from the board shunt (2 mohm) and dsPIC OA non-inverting gain (16x).
  *
  * Legacy AN1292 defines (VBUS_ADC_TO_VOLTS, ADC_CURRENT_SCALE) removed;
  * garuda_foc_params.h provides the canonical values. */

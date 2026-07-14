@@ -40,7 +40,6 @@ static volatile uint8_t  detectEdgeCount;
 /* ── PWM capture state (ISR-only) ─────────────────────────────────── */
 
 static uint32_t pwmRiseStamp;
-static uint32_t pwmLastRiseStamp;
 static bool     pwmGotRise;
 
 /* ── DShot DMA state ──────────────────────────────────────────────── */
@@ -225,7 +224,6 @@ void HAL_IC4_Init(void)
 
     pwmGotRise = false;
     pwmRiseStamp = 0;
-    pwmLastRiseStamp = 0;
 
     icMode = IC_MODE_DETECT;
 }
@@ -349,7 +347,6 @@ void __attribute__((__interrupt__, no_auto_psv)) _CCP4Interrupt(void)
             if (pinHigh)
             {
                 /* Rising edge */
-                pwmLastRiseStamp = pwmRiseStamp;
                 pwmRiseStamp = capture;
                 pwmGotRise = true;
             }

@@ -4,7 +4,7 @@
  * @brief GSP v1 protocol engine — ring buffers, parser, CRC, UART init.
  *
  * Packet format: [0x02] [LEN] [CMD_ID] [PAYLOAD...] [CRC16_H] [CRC16_L]
- * - LEN = byte count of CMD_ID + PAYLOAD (1-253)
+ * - LEN = byte count of CMD_ID + PAYLOAD (1-255)
  * - CRC-16-CCITT (poly 0x1021, init 0xFFFF) over [LEN][CMD_ID][PAYLOAD]
  * - CRC-fail: silent drop (host retries on timeout)
  *
@@ -46,7 +46,7 @@
                                        * the frame (payload+5) fits. */
 #define GSP_PARSER_TIMEOUT_MS 100   /* Reset parser after 100ms idle */
 #define GSP_MAX_CMDS_PER_SVC  1     /* Commands processed per GSP_Service() */
-#define GSP_BAUDRATE_DIVIDER  54    /* 100M/(16*55) = 115.7kbps */
+#define GSP_BAUDRATE_DIVIDER  54    /* 100M/(16*54) = 115.7kbps */
 
 _Static_assert((GSP_RX_RING_SIZE & GSP_RX_RING_MASK) == 0,
                "GSP_RX_RING_SIZE must be power of 2");

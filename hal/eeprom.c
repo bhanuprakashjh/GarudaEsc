@@ -33,7 +33,7 @@ static uint32_t lastWriteTick;
 
 /* ── dsPIC33AK flash NVM storage ─────────────────────────────────────
  *
- * dsPIC33AK128MC106 flash layout:
+ * dsPIC33AK256MC506 flash layout:
  *   Program flash: 0x800004 – 0x81FFFF (128KB address space)
  *   _FLASH_PAGE = 0x400 (1024 bytes erase granularity)
  *   _FLASH_ROW  = 0x80  (128 bytes write granularity)

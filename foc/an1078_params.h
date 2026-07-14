@@ -41,10 +41,10 @@ extern "C" {
  *      k = 36.3636 / 16 = 2.27325
  *  (×k for amp thresholds/refs, ÷k for the V/A current-PI gains) so the
  *  drive is behaviourally identical while every value now reads true amps.
- *  Two physics points (observer input, decoupling ff) are gated by staging
- *  knobs defaulted to preserve behaviour: AN_OBS_CURRENT_COMPAT and
- *  AN_DECOUPLE_FRAC — raise both to 1.0 (bench-verified) for full physical
- *  consistency. See the per-constant notes. ═══════════════════════════════ */
+ *  Two physics points (observer input, decoupling ff) were formerly gated by
+ *  staging knobs AN_OBS_CURRENT_COMPAT and AN_DECOUPLE_FRAC; both were retired
+ *  to their final 1.0 on 2026-07-14 (full physical consistency, bench-verified)
+ *  and remain only as revert knobs. See the per-constant notes. ═══════════ */
 #define AN_CUR_SCALE_FIX_K          2.27325f   /* 36.3636/16 — doc/reference only */
 #define AN_CURRENT_A_PER_COUNT      0.025183f  /* dsPIC OA1/OA2, gain 16, 2 mOhm ->
                                              * 32 mV/A; A/cnt = 3.3/(4095*16*0.002).
@@ -96,17 +96,17 @@ extern "C" {
  *  for a smoother/laggier one. */
 #define AN_IBUS_FILT_COEF           0.002f
 
-/** ── Observer current-input compat (gain-16 fix staging knob) ──────
+/** ── Observer current-input compat (retired staging knob → 1.0) ────
  *  The sliding-mode observer's plant model (Gsmopos = Ts/Ls) natively works in
  *  TRUE amps, but it was tuned/validated (Kslide, MaxSMCError) against the old
  *  fake-scale currents. Feeding it the true (k×-larger) currents changes its
- *  operating regime. To keep flash-1 behaviour byte-identical we scale the
- *  observer's current input back to the old units (1/k); MaxSMCError stays 1.0.
- *  This ONLY scales what the observer sees — drive currents/telemetry stay true.
- *  RETIRED 2026-07-14 to production end-state: 0.43991 -> 1.0 (observer now on
- *  true amps) TOGETHER WITH AN_SMC_MAX_LINEAR_ERR 1.0 -> 2.27325 (×k). Bench-
- *  verify observer lock across the speed range; revert this pair to 0.43991/1.0
- *  if lock degrades. */
+ *  operating regime. Formerly (flash-1) the observer input was scaled back to
+ *  the old units by 1/k with MaxSMCError=1.0 to hold behaviour byte-identical.
+ *  That staging is RETIRED (2026-07-14): the observer now runs on TRUE amps —
+ *  this is 1.0, PAIRED with AN_SMC_MAX_LINEAR_ERR 1.0 -> 2.27325 (×k) so Z's
+ *  linear region spans the same physical current-error range. It ONLY scales
+ *  what the observer sees — drive currents/telemetry stay true. Revert this
+ *  pair to 0.43991/1.0 if bench observer lock ever degrades. */
 #define AN_OBS_CURRENT_COMPAT       1.0f   /* was 0.43991 (=1/k); retired to true-amp observer (paired w/ MaxLinearErr×k) */
 
 /** ── A1: best-2-of-3 Clarke ───────────────────────────────────────
@@ -609,7 +609,7 @@ extern "C" {
  *  diverging as speed rises (the 12 A fast-OC latch still protects). Trim
  *  AN_DECOUPLE_FRAC down (e.g. 0.5) if the ff over-drives; it scales both terms. */
 #define AN_DECOUPLE_EN              1
-/* GAIN-16 FIX staging knob: the decoupling ff (w·Ls·i) uses the current REFS,
+/* GAIN-16 FIX (retired, revert-only knob): the decoupling ff (w·Ls·i) uses the current REFS,
  * which are now true amps (k× the old fake). With real Ls that makes the ff its
  * full physical strength — but the drive was validated with the ff effectively
  * 1/k as strong (fake currents). RETIRED 2026-07-14 to production end-state:
@@ -674,8 +674,9 @@ extern "C" {
  *  never advanced). Observer SPEED tracks but observer ANGLE is wrong at handoff.
  *  This is the recurring core defect and it is upstream of firmware angle tuning:
  *  the phase-current sense path (OA1/OA2) that feeds the observer angle is
- *  UNVERIFIED on this board. Reverted to 1 (working I/f build + 6000 eRPM cap)
- *  until the phase-current channels are scope-verified. See memory blocker. */
+ *  UNVERIFIED on this board. This block is the rationale for the old value 1
+ *  (working I/f build + 6000 eRPM cap); the live value is now 0 (observer-drive,
+ *  re-enabled 2026-07-11 — see inline note below). See memory blocker. */
 #define AN_CL_FORCED_ANGLE          0   /* 2026-07-11 RE-ENABLED observer-drive (0) for the ILIM-off diag run; REVERT to 1 if it wedges. History: observer-drive WEDGES
                                          * at handoff on EVERY start, even right after a
                                          * power-cycle (iqM slams 10-12A, isr freezes on the
@@ -881,8 +882,9 @@ extern "C" {
 
 /** Hard voltage ceiling during standstill LOCK (safety ceiling only).
  *  FOC 2026-07-10: raised 0.15 -> 2.5 now that the current-feedback path is
- *  PROVEN on this board (open-loop runs read believable idM/iqM, scaling
- *  0.011078 A/count verified). The old 0.1 V "align needs only 4*0.025"
+ *  PROVEN on this board (open-loop runs read believable idM/iqM; the scale then
+ *  was 0.011078 A/count, since corrected to 0.025183 by the gain-16 fix). The
+ *  old 0.1 V "align needs only 4*0.025"
  *  estimate ignored the ATA6847 dead-band, which eats ~90% of the commanded
  *  voltage at low modulation -> 0.15 V reached almost zero current and the
  *  current PI could never hit its 4 A target. The PI now SEES current so it

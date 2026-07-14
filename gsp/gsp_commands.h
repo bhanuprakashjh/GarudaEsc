@@ -29,7 +29,6 @@ extern "C" {
 #define GSP_PROTOCOL_VERSION  3
 
 /* Board IDs */
-#define GSP_BOARD_MCLV48V300W  0x0001
 #define GSP_BOARD_GARUDAESE    0x0002   /* EV60Y51A: AK256MC506 + ATA6847, 13:1 Vbus, OA 36.36x/2m */
 
 /* Command IDs */
@@ -105,7 +104,7 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(GSP_INFO_T) == 24, "GSP_INFO_T wire size mismatch");
 
-/* GSP_SNAPSHOT_T — 68 bytes, returned by GET_SNAPSHOT */
+/* GSP_SNAPSHOT_T — 254 bytes, returned by GET_SNAPSHOT */
 typedef struct __attribute__((packed)) {
     /* Core state (8B) */
     uint8_t  state;
@@ -160,7 +159,7 @@ typedef struct __attribute__((packed)) {
     uint32_t systemTick;
     uint32_t uptimeSec;
 
-    /* FOC telemetry (38B) — zero when FEATURE_FOC not enabled */
+    /* FOC telemetry (40B) — zero when FEATURE_FOC not enabled */
     float    focIdMeas;       /* D-axis current (A) — should be ~0 */
     float    focIqMeas;       /* Q-axis current (A) — torque */
     float    focTheta;        /* Commutation angle (rad) */
@@ -187,7 +186,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  focPad;
     uint16_t focOffsetIa;     /* Calibrated ADC offset Ia */
     uint16_t focOffsetIb;     /* Calibrated ADC offset Ib */
-    /* V4 observer diagnostics (22B) */
+    /* V4 observer diagnostics (20B) */
     float    smoResidual;     /* LP-filtered current estimation error (A) */
     float    pllInnovation;   /* LP-filtered PLL phase error (rad) */
     float    pllOmega;        /* Raw PLL speed estimate (rad/s) */

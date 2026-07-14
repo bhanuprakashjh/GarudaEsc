@@ -561,7 +561,7 @@ static void HandleGetParamList(const uint8_t *payload, uint8_t payloadLen)
     }
 
     /* 12 bytes/entry: id(u16) type(u8) group(u8) min(u32) max(u32)
-     * 3-byte header + max 20 entries × 12 = 243 bytes (< 249 payload max) */
+     * 3-byte header + max 20 entries × 12 = 243 bytes (< 254 payload max) */
     uint8_t buf[3 + 20 * 12];
     uint8_t entryCount = 0;
     uint8_t idx = 3; /* skip header */
