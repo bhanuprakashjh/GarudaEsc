@@ -102,10 +102,12 @@ extern "C" {
  *  fake-scale currents. Feeding it the true (k×-larger) currents changes its
  *  operating regime. To keep flash-1 behaviour byte-identical we scale the
  *  observer's current input back to the old units (1/k); MaxSMCError stays 1.0.
- *  PRODUCTION END-STATE: set this to 1.0 AND AN_SMC_MAX_LINEAR_ERR to ~2.273
- *  (×k) together, then bench-verify observer lock across the speed range. This
- *  ONLY scales what the observer sees — drive currents/telemetry stay true. */
-#define AN_OBS_CURRENT_COMPAT       0.43991f   /* = 1/2.27325. Raise to 1.0 (+ MaxSMCError×k) once verified */
+ *  This ONLY scales what the observer sees — drive currents/telemetry stay true.
+ *  RETIRED 2026-07-14 to production end-state: 0.43991 -> 1.0 (observer now on
+ *  true amps) TOGETHER WITH AN_SMC_MAX_LINEAR_ERR 1.0 -> 2.27325 (×k). Bench-
+ *  verify observer lock across the speed range; revert this pair to 0.43991/1.0
+ *  if lock degrades. */
+#define AN_OBS_CURRENT_COMPAT       1.0f   /* was 0.43991 (=1/k); retired to true-amp observer (paired w/ MaxLinearErr×k) */
 
 /** ── A1: best-2-of-3 Clarke ───────────────────────────────────────
  *  At high duty the driven leg's low-side shunt conducts only briefly -> its
@@ -610,10 +612,11 @@ extern "C" {
 /* GAIN-16 FIX staging knob: the decoupling ff (w·Ls·i) uses the current REFS,
  * which are now true amps (k× the old fake). With real Ls that makes the ff its
  * full physical strength — but the drive was validated with the ff effectively
- * 1/k as strong (fake currents). 0.43991 (=1/k) reproduces that EXACT pre-fix ff
- * for a byte-identical flash-1. PRODUCTION END-STATE: raise toward 1.0 for the
- * full, physically-correct decoupling once bench-verified (watch idM + bus pump). */
-#define AN_DECOUPLE_FRAC           0.43991f
+ * 1/k as strong (fake currents). RETIRED 2026-07-14 to production end-state:
+ * 0.43991 -> 1.0 = full, physically-correct decoupling ff (w·Ls·i in true amps
+ * with real Ls). BENCH: watch idM (correct sign holds it near 0 across the ramp)
+ * and Vbus for regen bus-pump at high speed; trim toward 0.5 if the ff over-drives. */
+#define AN_DECOUPLE_FRAC           1.0f
 
 /** ── D1: one-sample delay compensation (complex-vector) ───────────
  *  The vector we compute this tick is not applied until the next PWM update
@@ -906,11 +909,12 @@ extern "C" {
 /** Maximum linear-region current error (A).  Below this, Z = K·err/MaxErr;
  *  above, Z saturates at ±K.  Bigger boundary keeps Z in linear range
  *  for 4A-class operating currents on low-impedance motors.
- *  GAIN-16 FIX: stays 1.0 because the observer is fed COMPAT-scaled (old-unit)
- *  currents via AN_OBS_CURRENT_COMPAT. PRODUCTION END-STATE: when you set
- *  AN_OBS_CURRENT_COMPAT=1.0 (observer on true amps), set this to ~2.273 (×k)
- *  at the same time and re-verify observer lock across the speed range. */
-#define AN_SMC_MAX_LINEAR_ERR       1.0f
+ *  GAIN-16 FIX / RETIRED 2026-07-14: now that AN_OBS_CURRENT_COMPAT=1.0 feeds the
+ *  observer TRUE amps, this boundary is ×k (1.0 -> 2.27325) so Z's linear region
+ *  spans the same PHYSICAL current-error range as before the rescale. This pair
+ *  moves together with AN_OBS_CURRENT_COMPAT; revert both if observer lock
+ *  degrades on the bench. */
+#define AN_SMC_MAX_LINEAR_ERR       2.27325f
 
 /** Phase shift applied to atan2 output (radians).
  *
