@@ -2647,12 +2647,21 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
          * electrical power / Vbus = 1.5*(vd*id + vq*iq)/Vbus, built from the
          * cleanly-measured Iu/Iv shunts. Valid at every duty; +ve motoring,
          * -ve regen. (ibusRaw still read in the ISR for diagnostics.)
-         * AN_IBUS_RECON_GAIN corrects a uniform ~2x under-read traced to the
-         * phase-current scale (display-only; see an1078_params.h). */
-        garudaData.focIbus     = (s_foc_an.vbus > 1.0f)
-            ? AN_IBUS_RECON_GAIN * (1.5f * (s_foc_an.vd * s_foc_an.id_meas
-                     + s_foc_an.vq * s_foc_an.iq_meas)) / s_foc_an.vbus
-            : 0.0f;
+         * id/iq are now true amps (gain-16 scale fix), so AN_IBUS_RECON_GAIN=1.0
+         * (was a 2.0 display compensation before the scale was fixed at source). */
+        /* 2026-07-14: display IIR. The raw dq-power reconstruction jitters per
+         * ISR (two-shunt noise at high duty), so smooth it with a one-pole LPF
+         * at the 45 kHz ISR rate (tau ~ 11 ms) so the GUI shows a steady AVG.
+         * Telemetry-only — no control path reads focIbus. */
+        {
+            static float s_ibusFilt = 0.0f;
+            float ibus_raw = (s_foc_an.vbus > 1.0f)
+                ? AN_IBUS_RECON_GAIN * (1.5f * (s_foc_an.vd * s_foc_an.id_meas
+                         + s_foc_an.vq * s_foc_an.iq_meas)) / s_foc_an.vbus
+                : 0.0f;
+            s_ibusFilt += AN_IBUS_FILT_COEF * (ibus_raw - s_ibusFilt);
+            garudaData.focIbus = s_ibusFilt;
+        }
         garudaData.focThetaObs = s_foc_an.smc.Theta;
         garudaData.focVd       = s_foc_an.vd;
         garudaData.focVq       = s_foc_an.vq;

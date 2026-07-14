@@ -23,22 +23,33 @@ extern "C" {
 /* ── Hardware references (mirror of garuda_foc_params.h, kept local
  *    to AN1078 module so it can be tuned independently) ─────────── */
 
-/** Phase-current sensing scale (A per ADC count, signed about offset).
- *  2026-07-09 REVERTED to 24.95x scale: bench power balance disproved the
- *  8.3x hypothesis on THIS board (U3 KV700 @16V drag: PSU 2.5A = 40W in
- *  while iqM read 22A; 22A real would need ~117W, reading/3.006 = 7.3A
- *  gives ~39W = exact match). Gain = 24.95 per hal_adc.c / port_config.c /
- *  garuda_foc_params.h (RF/RIN = 4990/200). The x3.006 flagship port
- *  (720dfb5, 0.03236533f) inflated all readings 3x — clamp/OC values were
- *  effectively /3 in real amps. Instant-OC-at-ALIGN that motivated it was
- *  actually the 45 kHz bus-ADC phantom (fixed cde35a2).
- *  Full scale with 24.95x: ±22.04 A (analog rails there). */
-#define AN_CURRENT_A_PER_COUNT      0.011078f  /* GarudaESE 2026-07-09: dsPIC OA1/OA2,
-                                             * gain 12k/330 = 36.36x, shunt 2 mOhm ->
-                                             * 72.7 mV/A; A/cnt = 3.3/(4095*0.0727).
-                                             * Analog rails at +/-22.69 A real.
-                                             * (MCLV value was 0.01076636 @24.95x/3m.)
-                                             * Cross-checked vs Microchip ref FW. */
+/** ═══════════════════════════════════════════════════════════════════════
+ *  GAIN-16 CURRENT-SCALE FIX (2026-07-14) — schematic-verified, production.
+ *
+ *  The dsPIC OA1/OA2 current-sense amps are NON-INVERTING with gain
+ *  1 + Rf/Rin = 1 + 12k/(330+470) = 1 + 12k/800 = 16.0  (EV60Y51A sheet
+ *  "BRIDGE & SENSING": R43=330R + R49=470R in series, R54=12k feedback;
+ *  phase V identical R44/R45/R52/R53/R55). The ATA6847 CSA (Iw, Ibus) is
+ *  internal gain 16 (CSCR=0x03, hal_ata6847.c), shunt direct to pins.
+ *  Shunt = 2 mOhm (sheet note). ALL four channels: 16 × 2mOhm = 32 mV/A ->
+ *  A/cnt = 3.3/(4095·16·0.002) = 0.025183 (39.7 cnt/A), rails ±51.6 A.
+ *
+ *  The old 0.011078 assumed gain 36.36 (= 12k/330, dropping the 470R and
+ *  the non-inverting +1) -> every current read 2.2732× LOW. Bench-confirmed
+ *  uniformly (OL+CL, no-load+load) vs PSU. This fix moves the WHOLE control
+ *  chain into real amps; all coupled constants below are rescaled by
+ *      k = 36.3636 / 16 = 2.27325
+ *  (×k for amp thresholds/refs, ÷k for the V/A current-PI gains) so the
+ *  drive is behaviourally identical while every value now reads true amps.
+ *  Two physics points (observer input, decoupling ff) are gated by staging
+ *  knobs defaulted to preserve behaviour: AN_OBS_CURRENT_COMPAT and
+ *  AN_DECOUPLE_FRAC — raise both to 1.0 (bench-verified) for full physical
+ *  consistency. See the per-constant notes. ═══════════════════════════════ */
+#define AN_CUR_SCALE_FIX_K          2.27325f   /* 36.3636/16 — doc/reference only */
+#define AN_CURRENT_A_PER_COUNT      0.025183f  /* dsPIC OA1/OA2, gain 16, 2 mOhm ->
+                                             * 32 mV/A; A/cnt = 3.3/(4095*16*0.002).
+                                             * Rails +/-51.6 A. Was 0.011078 (bad
+                                             * gain 36.36). Schematic-verified. */
 #define AN_CURRENT_INVERT           1                /* GarudaESE 2026-07-10: ROOT CAUSE of the
                                              * FOC ISR hang. Bench: cmd +vd / meas -id at
                                              * standstill. Physics (Vd=Rs*id) says +vd MUST
@@ -59,23 +70,42 @@ extern "C" {
  *  dsPIC scale — must NOT be shared), INVERTED like the dsPIC legs, rest offset
  *  ~2072 counts. The W leg stayed linear (R^2 >= 0.99) through 84% duty, i.e.
  *  it is trustworthy exactly where the two-shunt (Iu/Iv) window collapses. */
-#define AN_CURRENT_W_A_PER_COUNT    0.010233f
+#define AN_CURRENT_W_A_PER_COUNT    0.023263f  /* was 0.010233 ×k. ATA gain 16;
+                                             * keeps the bench-regressed 0.924× ratio
+                                             * to the dsPIC legs (R^2=0.992). */
 #define AN_CURRENT_W_INVERT         1
 #define AN_CURRENT_W_MIDPOINT       2072     /* fallback until IDLE auto-zero */
 
-/** ── DC-bus current display calibration ───────────────────────────
- *  The displayed Ibus is RECONSTRUCTED from dq power: Idc = 1.5*(vd*id+vq*iq)/Vbus
- *  (garuda_service.c). Bench 2026-07-14: the reconstruction reads a UNIFORM ~2x
- *  LOW vs the PSU everywhere -- in OL startup AND in CL, at no load AND under
- *  load. Since the voltage scale is verified correct (vq=5.15V <-> mod 0.62) and
- *  the formula faithfully computes the stored vd/vq/id/iq, a uniform 2x low can
- *  only come from the PHASE-CURRENT scale (id/iq read half true amps). The
- *  underlying (OPAMP_GAIN 36.36 x SHUNT 2mOhm) product appears 2x too high.
- *  This gain corrects the Ibus DISPLAY ONLY -- it leaves the tuned current loop
- *  and the HW over-current comparator untouched (fixing the global scale would
- *  double the PI error and need a full re-tune + bench re-verify). If a later
- *  bench pass corrects OPAMP_GAIN/SHUNT globally, set this back to 1.0f. */
-#define AN_IBUS_RECON_GAIN          2.0f
+/** ── DC-bus current reconstruction gain ───────────────────────────
+ *  Ibus is RECONSTRUCTED from dq power: Idc = 1.5*(vd*id+vq*iq)/Vbus. Now that
+ *  the phase-current scale is correct at source (gain-16 fix), id/iq are true
+ *  amps, so this is 1.0. (Was 2.0 as a display-only compensation for the 2.27×
+ *  under-scale, before that scale was fixed globally.) */
+#define AN_IBUS_RECON_GAIN          1.0f
+
+/** ── DC-bus current display IIR (single-pole low-pass) ─────────────
+ *  The instantaneous reconstruction 1.5*(vd*id+vq*iq)/Vbus jitters per ISR
+ *  (two-shunt sense noise, amplified at high duty), so the raw focIbus reads
+ *  ±1-2A of ripple around its mean. A one-pole filter y += COEF*(x - y) run at
+ *  the 45 kHz ISR rate smooths it to a steady average for display, with no
+ *  effect on control (focIbus is telemetry-only; the real SW-OC watches the
+ *  calibrated phase currents, not this).
+ *    tau = AN_TS / COEF = 22.2us / 0.002 = 11.1 ms  (-3 dB ~ 14 Hz).
+ *  Fast enough to follow a throttle step in <50 ms, slow enough to average out
+ *  the per-cycle ripple. Raise COEF for a snappier/noisier reading, lower it
+ *  for a smoother/laggier one. */
+#define AN_IBUS_FILT_COEF           0.002f
+
+/** ── Observer current-input compat (gain-16 fix staging knob) ──────
+ *  The sliding-mode observer's plant model (Gsmopos = Ts/Ls) natively works in
+ *  TRUE amps, but it was tuned/validated (Kslide, MaxSMCError) against the old
+ *  fake-scale currents. Feeding it the true (k×-larger) currents changes its
+ *  operating regime. To keep flash-1 behaviour byte-identical we scale the
+ *  observer's current input back to the old units (1/k); MaxSMCError stays 1.0.
+ *  PRODUCTION END-STATE: set this to 1.0 AND AN_SMC_MAX_LINEAR_ERR to ~2.273
+ *  (×k) together, then bench-verify observer lock across the speed range. This
+ *  ONLY scales what the observer sees — drive currents/telemetry stay true. */
+#define AN_OBS_CURRENT_COMPAT       0.43991f   /* = 1/2.27325. Raise to 1.0 (+ MaxSMCError×k) once verified */
 
 /** ── A1: best-2-of-3 Clarke ───────────────────────────────────────
  *  At high duty the driven leg's low-side shunt conducts only briefly -> its
@@ -370,7 +400,32 @@ extern "C" {
  *    A2212 (Rs=65mΩ): 0.78V (~6% of 12V)
  *    2810  (Rs=22mΩ): 0.26V
  *  Both well under bus voltage. */
-#define AN_Q_CURRENT_REF_OPENLOOP   8.0f   /* 2026-07-13 PROP-START 5->8A: torque to drag the prop
+#define AN_Q_CURRENT_REF_OPENLOOP   15.0f  /* 2026-07-14 STARTUP-CURRENT TRIM 18.186->12->10->15 (true A).
+                                            * BENCH: 12.0 gives a rock-solid OL RAMP (0 fault, ~1.8A bus) but
+                                            * the OL->CL HANDOFF then becomes an intermittent coin-flip: ~half
+                                            * the starts, one tick after handoff the observer angle is wrong,
+                                            * speed collapses, speed-PI winds iqRef up, phase I hits the 27.3A
+                                            * FASTOC -> FAULT 252. Mechanism: lower OL current = larger load
+                                            * angle delta = bigger drive-angle step at handoff. 18.186 (the
+                                            * pre-fix "8A") was the last value with a reliable handoff. 15.0 is
+                                            * a probe between 12 (flaky) and 18 (ok): bus ~2.25A, ~25% below the
+                                            * original 3A, testing whether the handoff goes reliable again.
+                                            * If 15 still faults intermittently -> the handoff itself needs
+                                            * hardening (angle-blend kb / preload / handoff gate), decoupled
+                                            * from startup current, and we can then push OL current back down.
+                                            * Original note (still applies):
+                                            * The 18.186 was the pre-fix "8 A" ×k, behaviour-preserved.
+                                            * Now that the scale is TRUE, align+OL genuinely draw ~18A
+                                            * phase / ~3A bus flat across the whole ramp, while the SAME
+                                            * prop holds at only ~5A once in CL (14k) -> the 18A is forced
+                                            * sync margin, not load demand, and it's doubly-margined by the
+                                            * slow 400 rad/s^2 ramp. 12.0 (~pre-prop 5A×k=11.4) cuts bus
+                                            * to ~2A. FLOOR: forced I/f load angle must stay <90deg under
+                                            * inertia+cogging+prop or the rotor slips a pole (desync). If
+                                            * it slips/stalls on the OL ramp WITH the prop, step back up
+                                            * (13/14/15); if it holds, try lower (10/9). Keep ramp at 400.
+                                            * PROP-START 5->8A (=18.186 true) history:
+                                            * 2026-07-13: torque to drag the prop
                                             * up the OL ramp so the rotor tracks the forced angle
                                             * (no phantom OL). SAFE: FASTOC(12A) is CL-only, OL
                                             * regulates this ref. Pairs with OL ramp 1000->400.
@@ -476,7 +531,7 @@ extern "C" {
                                              * st= across the WHOLE ramp, don't jump big. */
 /** Soft-sign deadband (amps): |i| below this ramps the sign linearly instead of
  *  hard +-1, killing chatter at phase-current zero crossings. Must be > 0. */
-#define AN_DT_COMP_IBAND            1.0f
+#define AN_DT_COMP_IBAND            2.27325f /* GAIN-16 FIX ×k (was 1.0). Sign deadband on true-amp i_alpha */
 
 /** OUTPUT-side (duty-level) dead-time compensation — 2026-07-13.
  *
@@ -506,7 +561,7 @@ extern "C" {
 #define AN_OUT_DT_COMP_FRAC         0.03f
 /** Deadband (amps) for the output DT-comp softsign — same role as
  *  AN_DT_COMP_IBAND: below |i| this the sign ramps linearly to kill ZC chatter. */
-#define AN_OUT_DT_COMP_IBAND        1.0f
+#define AN_OUT_DT_COMP_IBAND        2.27325f /* GAIN-16 FIX ×k (was 1.0). Sign deadband on true-amp ia/ib */
 
 /** LOW-LOAD OBSERVER EXCITATION (d-axis current injection) — 2026-07-13.
  *
@@ -523,8 +578,8 @@ extern "C" {
  *  at high speed). Only active when field weakening is NOT engaged.
  *  Set AN_ID_INJECT_MAX_A = 0 to disable. Start ~3A ≈ the current that OL and
  *  hand-load ran at. */
-#define AN_ID_INJECT_MAX_A          3.0f     /* peak d-axis excitation, A (0 disables) */
-#define AN_ID_INJECT_IQ_KNEE_A      3.0f     /* |iq_ref| (A) at which injection fades to 0 */
+#define AN_ID_INJECT_MAX_A          6.820f   /* GAIN-16 FIX ×k (was 3.0). peak d-axis excitation, A (0 disables) */
+#define AN_ID_INJECT_IQ_KNEE_A      6.820f   /* GAIN-16 FIX ×k (was 3.0). |iq_ref| (A) at which injection fades to 0 */
 #define AN_ID_INJECT_FADE_RADS      5000.0f  /* elec speed (rad/s) at which injection fades to 0 (~48k eRPM) */
 
 /** DYNAMIC d/q DECOUPLING FEEDFORWARD — 2026-07-13.
@@ -552,7 +607,13 @@ extern "C" {
  *  diverging as speed rises (the 12 A fast-OC latch still protects). Trim
  *  AN_DECOUPLE_FRAC down (e.g. 0.5) if the ff over-drives; it scales both terms. */
 #define AN_DECOUPLE_EN              1
-#define AN_DECOUPLE_FRAC           1.0f
+/* GAIN-16 FIX staging knob: the decoupling ff (w·Ls·i) uses the current REFS,
+ * which are now true amps (k× the old fake). With real Ls that makes the ff its
+ * full physical strength — but the drive was validated with the ff effectively
+ * 1/k as strong (fake currents). 0.43991 (=1/k) reproduces that EXACT pre-fix ff
+ * for a byte-identical flash-1. PRODUCTION END-STATE: raise toward 1.0 for the
+ * full, physically-correct decoupling once bench-verified (watch idM + bus pump). */
+#define AN_DECOUPLE_FRAC           0.43991f
 
 /** ── D1: one-sample delay compensation (complex-vector) ───────────
  *  The vector we compute this tick is not applied until the next PWM update
@@ -678,13 +739,13 @@ extern "C" {
  *  alongside aggressive field weakening at high speed (Id can reach
  *  −12A; total |I|=√(Id²+Iq²) up to ~17A which is within MCLV-48V-300W
  *  inverter rating). */
-#define AN_OVER_CURRENT_LIMIT       20.0f   /* 2026-07-09 22->20A with the corrected
-                                             * 24.95x current scale: analog chain rails at
-                                             * +/-22.69A real (GarudaESE 36.36x/2m), so a 22A clamp would regulate
-                                             * right at the rail (nonlinear feedback). 20A
-                                             * keeps the current PI in the linear range and
-                                             * is ~3x the real torque the old mis-scaled
-                                             * clamp allowed (fake 22A = real 7.3A). */
+#define AN_OVER_CURRENT_LIMIT       45.465f /* GAIN-16 FIX ×k (was 20.0 fake = 45.5A real).
+                                             * dq speed-PI iq_ref clamp, now TRUE amps. Analog
+                                             * chain rails at +/-51.6A real (gain 16 / 2mOhm),
+                                             * so this stays in the linear range. This is the
+                                             * SAME physical clamp the drive was validated with;
+                                             * a real 45A is generous — trim to a sane design
+                                             * value (e.g. 25-30A) as a deliberate change. */
 
 /** Fast per-phase over-current latch at CL entry (2026-07-11 hardening).
  *  A bad observer handoff slams the phase current to ~8-12A within a tick or
@@ -693,7 +754,7 @@ extern "C" {
  *  FAULT the instant |ia| or |ib| exceeds this while in CL. Normal align/OL/CL
  *  peaks ~5-6A, so 8A trips only the desync slam. Per-phase amps (not the dq
  *  speed-PI clamp above). */
-#define AN_FASTCHK_OC_LIM_A         12.0f  /* 2026-07-13: 8->12. The observer-driven
+#define AN_FASTCHK_OC_LIM_A         27.279f /* GAIN-16 FIX ×k (was 12.0 fake = 27.3A real), same physical trip. 2026-07-13: 8->12. The observer-driven
                                              * CL ramp works to ~16.7k eRPM then a throttle
                                              * push made speed SAG + speed-PI wind iq up ->
                                              * phase peaked 8A -> instant latch, blocking the
@@ -738,8 +799,12 @@ extern "C" {
  * bw ≈ 4900 rad/s; Ls=18µH → Kp=0.088, Rs=25mΩ → Ki=122. Was 0.063/138
  * (2810, 10µH/22mΩ): those gains on the U3's ~2× inductance mis-scaled the
  * current loop and it overshot the 4A align command into the 15A phase-OC. */
-#define AN_KP_DQ                    0.088f
-#define AN_KI_DQ                    122.0f
+/* GAIN-16 FIX: ÷k (0.088/2.27325, 122/2.27325). err is now true amps (k× the
+ * old fake), so ÷k keeps the current loop byte-identical to the validated drive
+ * — effective bw ≈ 2160 rad/s. (Full designed bw·Ls would be 0.088 again = 4900
+ * rad/s; raise toward that as a deliberate, separately-verified bandwidth bump.) */
+#define AN_KP_DQ                    0.038712f
+#define AN_KI_DQ                    53.668f
 
 /* Speed PI:
  *   AN1078: SPEEDCNTR_PTERM = 0.5 Q15, SPEEDCNTR_ITERM = 0.005 Q15.
@@ -754,8 +819,10 @@ extern "C" {
  * Tracking speed comes from BOTH AN_CL_VELREF_SLEW_RPS2 (slewing the
  * setpoint) AND the speed PI (closing the loop on it).  Need decent
  * KP for the latter to actually track. */
-#define AN_KP_SPD                   0.015f
-#define AN_KI_SPD                   0.08f   /* 2026-07-11 MCLV-port 0.30->0.08: P-dominant speed
+/* GAIN-16 FIX: ×k (0.015·2.27325, 0.08·2.27325). Speed-PI output IS iq_ref (A),
+ * so ×k makes it command the same PHYSICAL current now expressed in true amps. */
+#define AN_KP_SPD                   0.034099f
+#define AN_KI_SPD                   0.181860f /* 2026-07-11 MCLV-port 0.30->0.08 (×k): P-dominant speed
                                              * loop. A high Ki turns residual OmegaFltred noise
                                              * into a handoff OC windup; pairs with the OmegaFltred
                                              * LPF (like MCLV / stock AN1078).
@@ -775,7 +842,7 @@ extern "C" {
  *  (away from 8A), even on a marginal-angle commit. velRef=OmegaFltred already
  *  gives bumpless speed, so we don't need 5A of torque headroom here. Keep OL
  *  ramp at 5A (unchanged) for ramp authority. REVERT: set = AN_Q_CURRENT_REF_OPENLOOP. */
-#define AN_HANDOFF_IQ_PRELOAD       2.0f
+#define AN_HANDOFF_IQ_PRELOAD       4.5465f /* GAIN-16 FIX ×k (was 2.0). OL->CL iq preload, true amps */
 
 /* Anti-windup back-calculation gain (1.0 = no anti-windup, 0 = full).
  * 2026-07-09: 0.999 (disabled) -> 0.5. Bench proof: when iq_ref hit its
@@ -838,7 +905,11 @@ extern "C" {
 
 /** Maximum linear-region current error (A).  Below this, Z = K·err/MaxErr;
  *  above, Z saturates at ±K.  Bigger boundary keeps Z in linear range
- *  for 4A-class operating currents on low-impedance motors. */
+ *  for 4A-class operating currents on low-impedance motors.
+ *  GAIN-16 FIX: stays 1.0 because the observer is fed COMPAT-scaled (old-unit)
+ *  currents via AN_OBS_CURRENT_COMPAT. PRODUCTION END-STATE: when you set
+ *  AN_OBS_CURRENT_COMPAT=1.0 (observer on true amps), set this to ~2.273 (×k)
+ *  at the same time and re-verify observer lock across the speed range. */
 #define AN_SMC_MAX_LINEAR_ERR       1.0f
 
 /** Phase shift applied to atan2 output (radians).

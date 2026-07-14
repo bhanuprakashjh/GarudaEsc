@@ -559,11 +559,14 @@ static void an_do_control(AN_Motor_T *m, float dt)
         {
             const float FW_TRIGGER = 0.91f;   /* engage just below clamp */
             const float FW_RELEASE = 0.86f;   /* hysteresis — release lower than trigger */
-            const float FW_KP_INT  = 150.0f;  /* A/s per (mod-thresh) unit.  400 caused
-                                                 * a ~30 Hz limit cycle near the voltage
-                                                 * saturation boundary on A2212 (Id swung
-                                                 * -1 to -6 A while speed bounced).
-                                                 * 150 damps that without losing depth. */
+            const float FW_KP_INT  = 341.0f;  /* GAIN-16 FIX ×k (was 150). Produces id_ref_fw
+                                                 * (true A) from (mod-thresh)·dt. The FW-loop
+                                                 * plant gain Δmod/Δi_true is 1/k of the old
+                                                 * Δmod/Δi_fake, so ×k keeps loop gain — hence
+                                                 * settling time AND stability margin — identical
+                                                 * (NOT a step toward the old 400 limit cycle).
+                                                 * Original note: 400 caused a ~30 Hz limit cycle
+                                                 * near voltage saturation on A2212. */
             const float FW_DECAY   = 0.995f;
             /* Live-tunable: |Id_FW_max| × 10 from gspParams (deci-amps).
              *   value 0   → ID_FW_MAX_NEG = 0 → FW truly DISABLED (id_ref_fw
@@ -583,7 +586,7 @@ static void an_do_control(AN_Motor_T *m, float dt)
              * which causes runaway: high Vd → vq_lim collapses → motor
              * stuck in rail (observed 2026-04-25).  Only engage when
              * the speed PI is genuinely demanding forward torque. */
-            const float FW_IQ_GATE = 1.0f;
+            const float FW_IQ_GATE = 2.27325f;   /* GAIN-16 FIX ×k (was 1.0). iq_ref gate, true amps */
 
             float v_last = sqrtf(m->vd * m->vd + m->vq * m->vq);
             float mod_now = (vmax > 0.001f) ? v_last / vmax : 0.0f;
@@ -954,8 +957,13 @@ void AN_MotorFastTick(AN_Motor_T *m,
 
     /* ── 4. Feed observer ────────────────────────────────── */
 #if !AN_OPENLOOP_VF && !AN_FOC_IF_ONLY
-    m->smc.Ialpha = m->i_alpha;
-    m->smc.Ibeta  = m->i_beta;
+    /* GAIN-16 FIX: the observer plant (Gsmopos=Ts/Ls) + its tuning (Kslide,
+     * MaxSMCError) were validated against the OLD fake-scale currents. i_alpha/
+     * i_beta are now TRUE amps (k× larger), so scale them back to the observer's
+     * validated units. Set AN_OBS_CURRENT_COMPAT=1.0 (+ MaxSMCError×k) for a
+     * physically-consistent observer once bench-verified. Drive/telemetry stay true. */
+    m->smc.Ialpha = m->i_alpha * AN_OBS_CURRENT_COMPAT;
+    m->smc.Ibeta  = m->i_beta  * AN_OBS_CURRENT_COMPAT;
     /* 2026-07-11 DEAD-TIME COMP (bench-confirmed -36deg no-load observer angle
      * bias = uncompensated ATA6847 dead-time; MCLV compensates at the duty
      * level, we did not). Feed the observer the TRUE applied voltage = commanded

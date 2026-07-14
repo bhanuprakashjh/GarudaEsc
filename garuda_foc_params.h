@@ -734,7 +734,13 @@
  *   ADC: 3.3V reference, 12-bit (0-4095), mid-point ~2048
  * ---------------------------------------------------------------- */
 #define SHUNT_RESISTANCE_OHM    0.002f   /* GarudaESE: 2 mOhm (MCLV was 3 mOhm) */
-#define OPAMP_GAIN              36.3636f /* GarudaESE: dsPIC OA 12k/330 (MCLV DIM was 24.95) */
+/* GAIN-16 FIX 2026-07-14: the dsPIC OA is NON-INVERTING, gain = 1 + Rf/Rin =
+ * 1 + 12k/(330+470) = 16.0 (EV60Y51A "BRIDGE & SENSING": R43=330+R49=470 series,
+ * R54=12k fb). Was 36.3636 (wrongly 12k/330, dropping the 470R + the +1) -> all
+ * currents read 2.27× low. NOTE: foc_v2/foc_v3 (dormant) inherit this via
+ * CURRENT_SCALE_A_PER_COUNT and would need their own gain/OC re-tune IF revived;
+ * the LIVE AN1078 path uses AN_CURRENT_A_PER_COUNT in an1078_params.h. */
+#define OPAMP_GAIN              16.0f    /* dsPIC OA: 1 + 12k/(330+470), schematic-verified */
 #define ADC_VREF_V              3.3f
 #define ADC_FULL_SCALE_F        4095.0f
 #define ADC_MIDPOINT            2048
