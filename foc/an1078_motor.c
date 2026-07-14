@@ -27,6 +27,10 @@
 #include <math.h>
 #include <stddef.h>
 
+#if FEATURE_AN_STA
+#include "an1078_sta.h"
+#endif
+
 /* ── Local constants ──────────────────────────────────────────── */
 
 #define AN_TWO_PI          6.28318530717958647692f
@@ -983,7 +987,11 @@ void AN_MotorFastTick(AN_Motor_T *m,
         m->smc.Valpha = m->v_alpha - dtc * sa;   /* from prev tick's inv Park */
         m->smc.Vbeta  = m->v_beta  - dtc * sb;
     }
+#if FEATURE_AN_STA
+    AN_STA_Position_Estimation(&m->smc);
+#else
     AN_SMC_Position_Estimation(&m->smc);
+#endif
     /* HARDENING (2026-07-11): if the observer diverged (non-finite), zero its
      * outputs so the drive angle and speed PI never see NaN/Inf. */
     if (!(m->smc.Theta > -1.0e6f && m->smc.Theta < 1.0e6f))

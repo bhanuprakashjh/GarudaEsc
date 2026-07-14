@@ -15,6 +15,15 @@
 #include "../gsp/gsp_params.h"      /* gspParams — live tuning */
 #endif
 
+/* Compile the whole body only when the STA observer is selected: an_sta_step()
+ * (below) touches AN_SMC_T fields (wIntA/k1/thetaBaseSTA/...) that only exist
+ * inside the struct when FEATURE_AN_STA=1 (see an1078_smc.h). Registering this
+ * file unconditionally in the MPLAB project (Task 4) requires this guard so the
+ * default (flag=0) build — which never calls AN_STA_Position_Estimation() —
+ * still compiles to an empty translation unit, per garuda_config.h's own
+ * "all STA code is #if-guarded so 0 is byte-identical" contract. */
+#if FEATURE_AN_STA
+
 #define STA_TWO_PI  6.28318530717958647692f
 #define STA_PI      3.14159265358979323846f
 
@@ -133,3 +142,5 @@ void AN_STA_Position_Estimation(AN_SMC_T *s)
                 an_tune_sta_theta_base(), an_tune_sta_theta_klat(), AN_TS);
 }
 #endif /* !AN_STA_HOST_TEST */
+
+#endif /* FEATURE_AN_STA */

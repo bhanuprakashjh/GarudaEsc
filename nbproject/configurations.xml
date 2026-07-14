@@ -7,6 +7,7 @@
       <itemPath>foc/an1078_motor.h</itemPath>
       <itemPath>foc/an1078_params.h</itemPath>
       <itemPath>foc/an1078_smc.h</itemPath>
+      <itemPath>foc/an1078_sta.h</itemPath>
       <itemPath>foc/back_emf_obs.h</itemPath>
       <itemPath>foc/clarke.h</itemPath>
       <itemPath>foc/flux_estimator.h</itemPath>
@@ -84,6 +85,7 @@
                    projectFiles="true">
       <itemPath>foc/an1078_motor.c</itemPath>
       <itemPath>foc/an1078_smc.c</itemPath>
+      <itemPath>foc/an1078_sta.c</itemPath>
       <itemPath>foc/back_emf_obs.c</itemPath>
       <itemPath>foc/clarke.c</itemPath>
       <itemPath>foc/flux_estimator.c</itemPath>
