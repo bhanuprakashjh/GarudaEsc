@@ -127,6 +127,10 @@ void AN_SMCReset(AN_SMC_T *s)
     s->Kslf      = s->KslfMin;
     s->KslfFinal = s->KslfMin;
 
+#if FEATURE_AN_STA
+    s->wIntA = 0.0f;
+    s->wIntB = 0.0f;
+#endif
     pll_reset(&s->pll);
 }
 

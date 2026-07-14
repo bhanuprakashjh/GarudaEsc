@@ -254,6 +254,7 @@ extern "C" {
                                      * PRE-OC-fix AN1078; the flagship's align-OC fixes (720dfb5 phase-
                                      * current gain 3.006x, cde35a2 phase-current OC) are NOT in this
                                      * tree yet. 2026-05-25: switched to 6-step. Flip to 0 for 6-step. */
+#define FEATURE_AN_STA            0  /* 2026-07-14 Super-twisting SMO A/B (spec docs/superpowers/specs/2026-07-14-an-sta-observer-design.md). Compile-time; default 0 = shipped boundary AN1078 observer. Flip to 1 to build the STA race variant; all STA code is #if-guarded so 0 is byte-identical. */
 #define FEATURE_SMO              0  /* 0=PLL only, 1=PLL+SMO parallel (v1 only) */
 #define FEATURE_MXLEMMING        0  /* 0=PLL chain, 1=MXLEMMING flux observer (v1 only) */
 #define FEATURE_LEARN_MODULES    0  /* master: ring buffer + quality + health */

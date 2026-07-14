@@ -12,6 +12,8 @@
 #ifndef AN1078_SMC_H
 #define AN1078_SMC_H
 
+#include "../garuda_config.h"   /* FEATURE_AN_STA (guard for STA fields below) */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -79,6 +81,20 @@ typedef struct {
      *
      * Reuses the existing pll_estimator.c block (already used by v2/v3). */
     PLL_t pll;
+
+#if FEATURE_AN_STA
+    /* ── Super-twisting observer state (FEATURE_AN_STA) ──────────────
+     * Alternate switching law; see foc/an1078_sta.c and
+     * docs/superpowers/specs/2026-07-14-an-sta-observer-design.md.
+     * Only wIntA/wIntB are persistent integrator state (reset each
+     * handoff); the rest are per-tick diagnostic copies of the
+     * live-tuned gains the wrapper passes into an_sta_step(). */
+    float wIntA, wIntB;    /* STA integral state (converges to EMF)  [V]   */
+    float k1, k2;          /* STA gains this tick (diagnostic)              */
+    float wClampFloorSTA;  /* anti-windup floor this tick (diagnostic)[V]  */
+    float thetaBaseSTA;    /* residual const angle offset (diagnostic)[rad]*/
+    float thetaKlatSTA;    /* residual ω-slope (diagnostic)          [rad·s]*/
+#endif
 } AN_SMC_T;
 
 /* ── Initialization ────────────────────────────────────────── */
