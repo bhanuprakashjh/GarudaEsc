@@ -137,11 +137,20 @@ void HAL_ATA6847_Init(void)
      * then shortens dead time to minimum. Reduces body diode conduction
      * → less noise on floating phase during dead time intervals.
      * Combined with slow slew rate, this gives clean transitions. */
-    HAL_ATA6847_WriteReg(ATA_GDUCR3, (0x01 << 6) | (0x01 << 4) | (0x03 << 2) | 0x03);
-    /* 0x5F: ADDTHS=50-160ns, ADDTLS=50-160ns, HSSRC=12.5%, LSSRC=12.5%.
-     * Best high-speed performance: 2.2 TO/snap at 85-95k, 4.3 at 95k+.
-     * ADT 150-210ns had cleaner comparator (4% flip rate) but worse at 95k+
-     * because wider dead time eats into the tight step period. */
+    /* ── FOC SLEW EXPERIMENT (2026-07-14) ─────────────────────────────
+     * ALL the slow-slew rationale above is 6-STEP-specific: it protects the
+     * BEMF *comparator* on the *floating phase* from switching dV/dt. FOC has
+     * NO floating phase and NO comparator ZC — so slow slew only costs us
+     * volt-second fidelity: 12.5% slew = long, ramping transitions = larger
+     * dead-time-equivalent voltage error the AN1078 observer integrates, and
+     * it makes the adaptive-DT VDS comparator marginal (slow crossing → it
+     * falls back toward the 700 ns CCPT ceiling → inconsistent, uncompensatable
+     * dead-time). The 28k/45k "desync" numbers above were 6-step comparator
+     * corruption, NOT a FOC failure mode. So step HS+LS slew 12.5% → 50% and
+     * A/B the >56k roughness + the regen bus pump. Revert to 0x03/0x03 (0x5F)
+     * if it rings / trips VDS-SC / makes it worse. */
+    HAL_ATA6847_WriteReg(ATA_GDUCR3, (0x01 << 6) | (0x01 << 4) | (0x01 << 2) | 0x01);
+    /* 0x55: ADDTHS=50-160ns, ADDTLS=50-160ns, HSSRC=50%, LSSRC=50%. */
     HAL_ATA6847_WriteReg(ATA_GDUCR4, (1 << 6) | (1 << 5) | (1 << 4) | 2); /* 0x72 */
 
     /* Interrupt masks.

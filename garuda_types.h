@@ -727,6 +727,9 @@ typedef struct
     uint16_t ibusRaw;             /* Bus current ADC (biased ~2048, ~93 counts/A) — instantaneous conduction */
     uint16_t ibusAvg;             /* IIR low-pass of ibusRaw (~5.7ms TC) — smooth trend */
     uint16_t ibusMax;             /* Peak bus current since last clear */
+    uint16_t tempRaw;             /* 2026-07-14: NTC raw ADC counts (AD3CH1). +3.3V→TH1(10k NTC)
+                                   * →node→R65(4.7k)→GND; ~1055 mV / ~1309 cts @25°C, rises with
+                                   * temp. Host converts to °C (β unconfirmed, calibrate on bench). */
     uint32_t clpciTripCount;      /* Coarse CLPCI activity counter via CLEVT polling.
                                    * One ADC tick (41.7us) may collapse multiple chop
                                    * events into one increment. Telemetry only. */
@@ -814,6 +817,8 @@ typedef struct
     float       focVbus;        /* Bus voltage (V) */
     float       focIa;          /* Phase A current (A) */
     float       focIb;          /* Phase B current (A) */
+    float       focIw;          /* 2026-07-14: Phase W current (A) — real ATA-CSA measurement */
+    float       focIbus;        /* 2026-07-14: DC-bus current (A) — real ATA-CSA measurement */
     float       focThetaObs;    /* SMO angle (rad) */
     float       focVd;          /* D-axis voltage command (V) */
     float       focVq;          /* Q-axis voltage command (V) */

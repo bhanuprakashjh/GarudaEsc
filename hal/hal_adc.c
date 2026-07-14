@@ -93,6 +93,14 @@ void InitializeADCs(void)
     AD4CH0CON1bits.SAMC = 5;
     AD4CH0CON1bits.FRAC = 0;
     AD4CH0CON1bits.DIFF = 0;
+    /* 2026-07-14: Ibus stays on Trigger 1 (PG1TRIGA). A single-sample bus read
+     * CANNOT work here: this is 7-segment center-aligned SVPWM, so EVERY period
+     * has a null vector (zero DC-bus current) at BOTH the boundary V0(000) AND
+     * the center V7(111). The bus shunt only conducts during the active vectors
+     * at the quarter points, whose position moves with duty -> no fixed trigger
+     * catches it (bench-proven 2026-07-14: ON-center V7 read dead-null at low
+     * duty, ±2A noise at high duty). The displayed Ibus is reconstructed from
+     * the phase currents in garuda_service.c instead. ibusRaw kept for diag. */
     AD4CH0CON1bits.TRG1SRC = 4;
 
     /* ---- ADC5 : BEMF_W (CH0, RA1=AD5AN1) + BEMF_N (CH1, RA11=AD5AN2) + VBUS (CH2, RA7=AD5AN0) ---- */

@@ -153,6 +153,16 @@ static inline float an_raw_to_amps(uint16_t raw, float offset)
 #endif
 }
 
+/* W leg has its own ATA-op-amp scale/sign (see AN_CURRENT_W_* in params). */
+static inline float an_raw_to_amps_w(uint16_t raw, float offset)
+{
+#if AN_CURRENT_W_INVERT
+    return -(((float)raw - offset) * AN_CURRENT_W_A_PER_COUNT);
+#else
+    return  (((float)raw - offset) * AN_CURRENT_W_A_PER_COUNT);
+#endif
+}
+
 static inline float an_raw_to_vbus(uint16_t raw)
 {
     return (float)raw * AN_VBUS_V_PER_COUNT;
@@ -192,6 +202,14 @@ static void an_init_pi_controllers(AN_Motor_T *m)
 
     an_pi_init(&m->pi_d, AN_KP_DQ, AN_KI_DQ, -vmax_init, vmax_init);
     an_pi_init(&m->pi_q, AN_KP_DQ, AN_KI_DQ, -vmax_init, vmax_init);
+
+#if AN_OVERMOD_EN
+    /* Full back-calculation anti-windup on the inner current PIs (overrides the
+     * shared AN_PI_KC=0.5) so their integrators unwind completely when the vector
+     * saturates against the overmodulation ceiling.  Speed PI keeps AN_PI_KC. */
+    m->pi_d.kc = AN_PI_KC_CURRENT;
+    m->pi_q.kc = AN_PI_KC_CURRENT;
+#endif
 
     /* Speed PI: output = Iq reference, so clamp in amps. */
     an_pi_init(&m->pi_spd, AN_KP_SPD, AN_KI_SPD,
@@ -253,6 +271,7 @@ void AN_MotorInit(AN_Motor_T *m)
     m->faultCode = 0;
     m->ia_offset = (float)AN_ADC_MIDPOINT;
     m->ib_offset = (float)AN_ADC_MIDPOINT;
+    m->iw_offset = (float)AN_CURRENT_W_MIDPOINT;   /* A1: own ATA-channel rest */
     m->cal_done = false;
 
     an_reset_parameters(m);
@@ -515,7 +534,13 @@ static void an_do_control(AN_Motor_T *m, float dt)
                                  dt);
         m->vqRef = iq_ref;
 
+#if AN_OVERMOD_EN
+        /* CL runs into the hexagon (overmodulation) for extra top-speed
+         * voltage headroom; OL/ALIGN stay linear (AN_MAX_VOLTAGE_VECTOR_FRAC). */
+        float vmax = m->vbus * AN_INV_SQRT3 * AN_OVERMOD_FRAC;
+#else
         float vmax = m->vbus * AN_INV_SQRT3 * AN_MAX_VOLTAGE_VECTOR_FRAC;
+#endif
 
         /* ── Field weakening ─────────────────────────────────────
          *
@@ -824,15 +849,18 @@ static void an_calc_park_angle(AN_Motor_T *m)
 
 /* ── ADC offset calibration ────────────────────────────────── */
 
-static void an_offset_cal(AN_Motor_T *m, uint16_t ia_raw, uint16_t ib_raw)
+static void an_offset_cal(AN_Motor_T *m, uint16_t ia_raw, uint16_t ib_raw,
+                          uint16_t iw_raw)
 {
     if (m->cal_done) return;
     m->cal_accum_a += ia_raw;
     m->cal_accum_b += ib_raw;
+    m->cal_accum_w += iw_raw;   /* A1: auto-zero the W leg too */
     m->cal_count++;
     if (m->cal_count >= AN_CAL_SAMPLES) {
         m->ia_offset = (float)(m->cal_accum_a >> 10);  /* /1024 */
         m->ib_offset = (float)(m->cal_accum_b >> 10);
+        m->iw_offset = (float)(m->cal_accum_w >> 10);
         m->cal_done = true;
     }
 }
@@ -840,7 +868,7 @@ static void an_offset_cal(AN_Motor_T *m, uint16_t ia_raw, uint16_t ib_raw)
 /* ── Fast-loop tick (port of _ADCInterrupt body, dual-shunt path) ─ */
 
 void AN_MotorFastTick(AN_Motor_T *m,
-                      uint16_t ia_raw, uint16_t ib_raw,
+                      uint16_t ia_raw, uint16_t ib_raw, uint16_t iw_raw,
                       uint16_t vbus_raw, uint16_t throttle,
                       float *da, float *db, float *dc)
 {
@@ -855,7 +883,7 @@ void AN_MotorFastTick(AN_Motor_T *m,
 
     /* When stopped, run offset cal and return idle. */
     if (!m->runMotor) {
-        an_offset_cal(m, ia_raw, ib_raw);
+        an_offset_cal(m, ia_raw, ib_raw, iw_raw);
         return;
     }
 
@@ -864,8 +892,34 @@ void AN_MotorFastTick(AN_Motor_T *m,
     }
 
     /* ── 1. Phase currents (ADC → amps) ──────────────────── */
-    m->ia = an_raw_to_amps(ia_raw, m->ia_offset);
-    m->ib = an_raw_to_amps(ib_raw, m->ib_offset);
+    m->ia = an_raw_to_amps(ia_raw, m->ia_offset);      /* U (dsPIC OA1) */
+    m->ib = an_raw_to_amps(ib_raw, m->ib_offset);      /* V (dsPIC OA2) */
+    m->iw = an_raw_to_amps_w(iw_raw, m->iw_offset);    /* W (ATA CSA) — A1 */
+
+    /* ── 1b. A1 best-2-of-3 leg selection ─────────────────
+     * The leg with the largest (most high-side-on) duty had the shortest
+     * low-side shunt window this tick, so its reading is the least trustworthy.
+     * If it exceeds AN_CLARKE_DUTY_TH, reconstruct it from the other two via
+     * Kirchhoff (iu+iv+iw=0). Only U or V matter to the downstream Clarke —
+     * if W is the offender, the Clarke already consumes the reliable U,V pair.
+     * Uses the PREVIOUS tick's duty (the window that produced these samples).
+     * Overwriting m->ia/m->ib here means the OC latch, Clarke and DT-comp all
+     * consume the trusted currents with no further change. */
+    m->clarke_drop = 0;
+#if AN_CLARKE_BEST2OF3
+    if (!m->openLoop && m->cal_done) {
+        float du = m->da_prev, dv = m->db_prev, dw = m->dc_prev;
+        if (du >= dv && du >= dw && du > AN_CLARKE_DUTY_TH) {
+            m->ia = -(m->ib + m->iw);   /* U window collapsed → from V,W */
+            m->clarke_drop = 1;
+        } else if (dv >= du && dv >= dw && dv > AN_CLARKE_DUTY_TH) {
+            m->ib = -(m->ia + m->iw);   /* V window collapsed → from U,W */
+            m->clarke_drop = 2;
+        } else if (dw >= du && dw >= dv && dw > AN_CLARKE_DUTY_TH) {
+            m->clarke_drop = 3;         /* W dropped; U,V already the trusted pair */
+        }
+    }
+#endif
 
     /* HARDENING (2026-07-11): fast per-phase OC latch in CL. A bad observer
      * handoff slams the phase current; without this the tick drives a huge
@@ -1004,8 +1058,19 @@ void AN_MotorFastTick(AN_Motor_T *m,
 
     /* ── 8. Inverse Park: (vd, vq) → (vα, vβ) ──────────── */
     {
-        float sin_t = sinf(m->theta_drive);
-        float cos_t = cosf(m->theta_drive);
+        float theta_out = m->theta_drive;
+#if AN_DELAYCOMP_EN
+        /* D1: advance the OUTPUT angle by w*Ts*frac so the vector the inverter
+         * applies next PWM update lands on the rotor's future position, not its
+         * past one. w = observer speed; scales with speed so low-speed is
+         * untouched. Only in CL (OL drives its own forced angle). */
+        if (!m->openLoop) {
+            theta_out = an_wrap_2pi(theta_out +
+                        AN_DELAYCOMP_FRAC * m->smc.OmegaFltred * AN_TS);
+        }
+#endif
+        float sin_t = sinf(theta_out);
+        float cos_t = cosf(theta_out);
         an_inv_park(m->vd, m->vq, sin_t, cos_t, &m->v_alpha, &m->v_beta);
     }
 
@@ -1033,4 +1098,11 @@ void AN_MotorFastTick(AN_Motor_T *m,
         if (*dc < 0.0f) *dc = 0.0f; if (*dc > 1.0f) *dc = 1.0f;
     }
 #endif
+
+    /* A1: remember this tick's FINAL commanded duty — it is the low-side
+     * window that will produce NEXT tick's current samples, so the best-2-of-3
+     * selector reads it from here. */
+    m->da_prev = *da;
+    m->db_prev = *db;
+    m->dc_prev = *dc;
 }

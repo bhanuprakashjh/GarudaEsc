@@ -727,6 +727,14 @@ static uint16_t s_ocZeroMax;
  * Remove after first spin. */
 volatile uint32_t g_adcIsrCount = 0;
 
+/* A2 Iw-calibration telemetry (2026-07-13): raw Iw (AD3CH3) latched each ISR,
+ * same PG1TRIGA instant as ia/ib. Streamed via the dormant fallOffBemfMax
+ * snapshot slot under AN1078. extern'd by gsp_snapshot.c. Remove after A1. */
+volatile uint16_t g_iwRawCal = 0;
+/* A1 best-2-of-3 telemetry: which leg the Clarke dropped last CL tick
+ * (0=none,1=U,2=V,3=W). Streamed via fallOffBemfMin under AN1078. */
+volatile uint8_t g_clarkeDropCal = 0;
+
 /* Heartbeat LED counter */
 static uint16_t heartbeatCounter = 0;
 /* Sub-counter for 1ms system tick from 100us Timer1 */
@@ -963,6 +971,16 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
     /* FOC: AD1CH0 = Ia (OA1OUT), AD2CH0 = Ib (OA2OUT) — raw uint16_t */
     uint16_t raw_ia = ADCBUF_IA;
     uint16_t raw_ib = ADCBUF_IB;
+    g_iwRawCal = ADCBUF_IW;   /* A2 cal: Iw @ same PG1TRIGA instant as ia/ib */
+    /* 2026-07-14: read the real DC-bus CSA (AD4CH0) + NTC temp (AD3CH1) each
+     * ISR. Both were unread in the FOC build (their 6-step reader blocks are
+     * compiled out) — reading clears their data-ready (mandatory on dsPIC33AK)
+     * and feeds the new focIbus/tempRaw telemetry below. NOTE: ibus is sampled
+     * at the FOC PG1TRIGA instant, so at low duty it can under-read vs the PSU
+     * average (the "45 kHz bus-ADC phantom") — surfaced for visibility, not
+     * used for protection (phase-current OC guards FOC). */
+    garudaData.ibusRaw = ADCBUF_IBUS;
+    garudaData.tempRaw = ADCBUF_TEMP;
 #else
     /* GarudaESE 6-step: read AD1CH0 (Iu) FIRST — it is the interrupt source —
      * then the three DEDICATED BEMF channels (no Phase-A/C mux; all sampled
@@ -2550,9 +2568,10 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
 
         float da_an, db_an, dc_an;
         AN_MotorFastTick(&s_foc_an,
-                         raw_ia, raw_ib,
+                         raw_ia, raw_ib, g_iwRawCal,   /* A1: W leg @ same PG1TRIGA */
                          garudaData.vbusRaw, throttle_an,
                          &da_an, &db_an, &dc_an);
+        g_clarkeDropCal = s_foc_an.clarke_drop;   /* A1 telemetry */
 
         /* PWM enable: match V2/V3 pattern (proven on this hardware).
          * Release overrides first, then write duty.  V2/V3's first PWM
@@ -2614,6 +2633,26 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
         garudaData.focVbus     = s_foc_an.vbus;
         garudaData.focIa       = s_foc_an.ia;
         garudaData.focIb       = s_foc_an.ib;
+        /* 2026-07-14: real 3rd-phase current (already best-2-of-3 calibrated in
+         * amps inside the AN1078 step) + real DC-bus current from the ATA CSA
+         * (raw counts → amps: (raw-2048)/93, same 93 counts/A frame as the
+         * SW-OC path). Both now visible in the GUI. */
+        garudaData.focIw       = s_foc_an.iw;
+        /* 2026-07-14: DC-bus current is RECONSTRUCTED from the phase currents,
+         * not sampled. The bus shunt can't be read from one ADC sample/cycle:
+         * 7-seg center-aligned SVPWM nulls it (V0 at the boundary, V7 at the
+         * center) and the conducting active vectors move with duty, so no fixed
+         * trigger catches it (bench-proven: ON-center read dead-null at low duty,
+         * ±2A noise at high duty). The exact average DC-bus current = motor
+         * electrical power / Vbus = 1.5*(vd*id + vq*iq)/Vbus, built from the
+         * cleanly-measured Iu/Iv shunts. Valid at every duty; +ve motoring,
+         * -ve regen. (ibusRaw still read in the ISR for diagnostics.)
+         * AN_IBUS_RECON_GAIN corrects a uniform ~2x under-read traced to the
+         * phase-current scale (display-only; see an1078_params.h). */
+        garudaData.focIbus     = (s_foc_an.vbus > 1.0f)
+            ? AN_IBUS_RECON_GAIN * (1.5f * (s_foc_an.vd * s_foc_an.id_meas
+                     + s_foc_an.vq * s_foc_an.iq_meas)) / s_foc_an.vbus
+            : 0.0f;
         garudaData.focThetaObs = s_foc_an.smc.Theta;
         garudaData.focVd       = s_foc_an.vd;
         garudaData.focVq       = s_foc_an.vq;

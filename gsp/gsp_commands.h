@@ -263,9 +263,24 @@ typedef struct __attribute__((packed)) {
      * (pulse-center, for limiting/peak); ibusAvg = smoothed trend. Appended at
      * the end so older decoders that stop at 246B still parse the rest. */
     uint16_t ibusAvg;
+
+    /* 2026-07-14 (6B) — real 3rd-phase current, real DC-bus current, and NTC
+     * temperature. Appended at the very end so older decoders that stop at
+     * 248B still parse everything before this. Compact int16 centi-amp / raw
+     * encoding (NOT float) so the whole snapshot stays inside the single-byte
+     * GSP frame LEN: 254B snapshot → GET_SNAPSHOT pktLen 255 (the max). See the
+     * TX-ring / GSP_MAX_PAYLOAD_LEN bump in gsp.c. Populated only in the
+     * AN1078 FOC build; zero otherwise.
+     *   focIwCa   = W-phase current ×100 (centi-A), real ATA-CSA (best-2-of-3)
+     *   focIbusCa = DC-bus current ×100 (centi-A), real ATA-CSA ((raw-2048)/93)
+     *   tempRaw   = NTC raw ADC counts (AD3CH1); host converts to °C. Divider:
+     *               +3.3V→TH1(10k NTC)→node→R65(4.7k)→GND, hotter = higher counts. */
+    int16_t  focIwCa;    /* offset 248 */
+    int16_t  focIbusCa;  /* offset 250 */
+    uint16_t tempRaw;    /* offset 252 */
 } GSP_SNAPSHOT_T;
 
-_Static_assert(sizeof(GSP_SNAPSHOT_T) == 248, "GSP_SNAPSHOT_T wire size mismatch");
+_Static_assert(sizeof(GSP_SNAPSHOT_T) == 254, "GSP_SNAPSHOT_T wire size mismatch");
 
 /* GSP_RX_STATUS_T — 12 bytes, returned by GET_RX_STATUS */
 typedef struct __attribute__((packed)) {

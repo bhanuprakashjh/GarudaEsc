@@ -231,18 +231,17 @@ static const GSP_PARAMS_T profileDefaults[7] = {
                                          * correction restored, Iq_ref
                                          * shouldn't saturate the speed PI
                                          * under normal operation. */
-        .focMaxElecRadS       = 6000,   /* 2026-07-11 MCLV-port 25000->6000: cap the full-throttle
-                                         * target at ~57k eRPM (U3 KV700 sane ceiling), like MCLV.
-                                         * 25000 chased an unreachable ~239k eRPM -> bus sag. Prior:
-                                         * 2026-07-10 REVERTED to 25000 per user: the
-                                         * 6000-eRPM cap (628) and everything after the
-                                         * first clean CL run were judged regressions --
-                                         * this restores the throttle map of the best run
-                                         * (build 0x92246863, idle->75k eRPM, 93 s). Note
-                                         * the tradeoff this reinstates: full throttle
-                                         * commands ~239k eRPM, so high throttle chases an
-                                         * unreachable target (45-56k @ 6-9 A, bus sag on
-                                         * the 16 V bench). Keep high-throttle runs short. */
+        .focMaxElecRadS       = 8000,   /* 2026-07-14 BAKED live-tune win: 6000->8000 rad/s
+                                         * (=76,394 eRPM), the U3 KV700 @16V physical ceiling
+                                         * (KV700*16V*7pp = 78,400). With Kslide 8.0 (below)
+                                         * the drive climbs cleanly to the cap: bench-proven
+                                         * 76,061 eRPM mean / 77,185 peak, Vbus dead-flat 16.0
+                                         * (no bus-pump), mod ~0.95 (true voltage ceiling),
+                                         * natural field-weakening idM ~-2.7 A. The old 6000
+                                         * cap was the sole limiter of the 57k plateau (mod
+                                         * only 0.87 there = voltage to spare). History:
+                                         * 2026-07-11 MCLV-port 25000->6000 capped ~57k;
+                                         * 25000 chased an unreachable ~239k -> bus sag. */
         .focKpDqMilli         = 63,     /* Kp = 2π × 1000 × 10 µH = 0.063 */
         .focKiDq              = 138,    /* Ki = 2π × 1000 × 0.022 = 138 */
         .focObsLpfAlphaMilli  = 350,    /* 0.35 (matches A2212, high-speed drone) */
@@ -291,7 +290,13 @@ static const GSP_PARAMS_T profileDefaults[7] = {
          * |Id_FW_max| × 10 = 120 → -12 A (12 A peak field-weakening). */
         .an1078ThetaBaseDegX10 = 3450,  /* -15deg effective; see derivation above */
         .an1078ThetaKE7        = 800,
-        .an1078KslideMv        = 2500,
+        .an1078KslideMv        = 8000,  /* 2026-07-14 BAKED live-tune win: 2.5->8.0 V.
+                                         * Higher SMO sliding gain restores observer
+                                         * confidence at high speed and kills the
+                                         * >45k bus-pump limit cycle (regen pumping
+                                         * Vbus -> FAST-OC). Vbus now dead-flat 16.0
+                                         * through the whole 42k->76k climb. Paired
+                                         * with focMaxElecRadS=8000 to reach the ceiling. */
         .an1078IdFwMaxDecia    = 120,
     },
     [GSP_PROFILE_5055] = {

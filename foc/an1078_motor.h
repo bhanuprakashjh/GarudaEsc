@@ -82,8 +82,10 @@ typedef struct {
     int16_t speedRampCount;     /* counts ticks until next speed-PI update */
 
     /* Frame/measurement variables (telemetry-friendly; computed each tick) */
-    float ia, ib;               /* phase currents [A] */
+    float ia, ib;               /* phase currents [A] (U, V — dsPIC OA1/OA2) */
+    float iw;                   /* W phase current [A] (ATA op-amp — A1 best-2-of-3) */
     float i_alpha, i_beta;      /* α-β currents */
+    uint8_t clarke_drop;        /* telemetry: leg dropped this tick (0=none,1=U,2=V,3=W) */
     float id_meas, iq_meas;     /* measured d-q currents */
     float vd, vq;               /* commanded d-q voltages */
     float v_alpha, v_beta;      /* α-β voltages from inverse Park */
@@ -93,10 +95,16 @@ typedef struct {
     /* ADC offset calibration */
     float ia_offset;
     float ib_offset;
+    float iw_offset;            /* W rest-count (A1 auto-zero; own ATA channel) */
     uint32_t cal_accum_a;
     uint32_t cal_accum_b;
+    uint32_t cal_accum_w;
     uint16_t cal_count;
     bool cal_done;
+
+    /* Previous tick's commanded duty — the window that produced THIS tick's
+     * current samples; drives the best-2-of-3 leg selection. */
+    float da_prev, db_prev, dc_prev;
 
     /* Throttle (input) */
     uint16_t throttle;
@@ -125,7 +133,7 @@ void AN_MotorFault(AN_Motor_T *m, uint16_t code);
  * @param da, db, dc      Output duty cycles [0..1] (50%=zero net voltage)
  */
 void AN_MotorFastTick(AN_Motor_T *m,
-                      uint16_t ia_raw, uint16_t ib_raw,
+                      uint16_t ia_raw, uint16_t ib_raw, uint16_t iw_raw,
                       uint16_t vbus_raw, uint16_t throttle,
                       float *da, float *db, float *dc);
 

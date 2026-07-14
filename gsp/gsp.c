@@ -33,13 +33,17 @@
 
 #define GSP_START_BYTE        0x02
 #define GSP_RX_RING_SIZE      256   /* Must be power of 2 */
-#define GSP_TX_RING_SIZE      256   /* Must be power of 2 */
+#define GSP_TX_RING_SIZE      512   /* 2026-07-14: 256->512. The snapshot grew to
+                                       * 254B (added real Iw/Ibus/temp), so the
+                                       * GET_SNAPSHOT frame (259B) no longer fits a
+                                       * 256B ring. RX stays 256 (commands are tiny). */
 #define GSP_RX_RING_MASK      (GSP_RX_RING_SIZE - 1)
 #define GSP_TX_RING_MASK      (GSP_TX_RING_SIZE - 1)
-#define GSP_MAX_PAYLOAD_LEN   249   /* Max response payload that fits TX ring.
-                                       * Frame overhead = 5 (START+LEN+CMD+CRC16).
-                                       * TX ring usable = GSP_TX_RING_SIZE-1 = 255.
-                                       * 255 - 5 - 1(CMD in LEN) = 249. */
+#define GSP_MAX_PAYLOAD_LEN   254   /* 2026-07-14: 249->254. The single wire LEN byte
+                                       * is uint8 and carries pktLen (=1+payload), so
+                                       * payload maxes at 254 → pktLen 255 (no u8 wrap).
+                                       * 254 = the 254B snapshot. TX ring is now 512 so
+                                       * the frame (payload+5) fits. */
 #define GSP_PARSER_TIMEOUT_MS 100   /* Reset parser after 100ms idle */
 #define GSP_MAX_CMDS_PER_SVC  1     /* Commands processed per GSP_Service() */
 #define GSP_BAUDRATE_DIVIDER  54    /* 100M/(16*55) = 115.7kbps */

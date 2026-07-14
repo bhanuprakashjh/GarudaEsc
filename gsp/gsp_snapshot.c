@@ -174,6 +174,13 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
     dst->focSubState = src->focSubState;
     dst->focOffsetIa = src->focOffsetIa;
     dst->focOffsetIb = src->focOffsetIb;
+    /* 2026-07-14: real 3rd-phase Iw + real DC-bus Ibus as centi-amps, raw NTC
+     * temp. Compact int16 so the snapshot stays within the GSP frame LEN. */
+  #if FEATURE_FOC_V3 || FEATURE_FOC_AN1078
+    dst->focIwCa   = (int16_t)(src->focIw   * 100.0f);
+    dst->focIbusCa = (int16_t)(src->focIbus * 100.0f);
+  #endif
+    dst->tempRaw   = src->tempRaw;
   #if FEATURE_FOC_V3   /* probe block moved out of FOC guard (see below) */
 
     /* v3-only: SMO + PLL observer fields — GARUDA_DATA_T doesn't include
@@ -276,6 +283,27 @@ void GSP_CaptureSnapshot(GSP_SNAPSHOT_T *dst)
     dst->fallOffBemfMax = src->bemf.fallOffBemfMax;
     src->bemf.fallOffBemfMin = 0xFFFF;
     src->bemf.fallOffBemfMax = 0;
+#if FEATURE_FOC_AN1078
+    /* A2 Iw-calibration telemetry: the 6-step BEMF-envelope slots are dormant
+     * under AN1078, so repurpose fallOffBemfMax to stream the raw Iw sample,
+     * tick-aligned (same PG1TRIGA) with focIa/focIb. Offline: regress
+     * iw_ref = -(focIa + focIb) against this raw to recover the Iw gain,
+     * sign, and offset. Decoded to CSV column `fall_off_max`; no snapshot-
+     * format change, no decoder change. Remove after A1 lands. */
+    {
+        extern volatile uint16_t g_iwRawCal;
+        /* fallOffBemfMin doubles as the decoder's "has-samples" guard: it
+         * discards fall_off_max when min == 0xFFFF (the 6-step no-sample
+         * sentinel, which is what AN1078 leaves it at). Clear it to 0 so the
+         * host emits fall_off_max = raw Iw into the CSV. */
+        /* A1: fallOffBemfMin now carries clarke_drop (0=none,1=U,2=V,3=W) so the
+         * bench can see the best-2-of-3 reconstruction engage. Still != 0xFFFF
+         * so the decoder's has-samples guard passes and fall_off_max streams. */
+        extern volatile uint8_t g_clarkeDropCal;
+        dst->fallOffBemfMin = g_clarkeDropCal;
+        dst->fallOffBemfMax = g_iwRawCal;
+    }
+#endif
 
 #if !FEATURE_FOC && !FEATURE_FOC_V2 && !FEATURE_FOC_V3 && !FEATURE_FOC_AN1078
     /* Phase-current monitor (16-bit fields are atomic on dsPIC33AK).

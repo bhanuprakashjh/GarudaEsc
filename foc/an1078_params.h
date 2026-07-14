@@ -51,6 +51,49 @@ extern "C" {
                                              * stable loop (matches the working AN1078 ref). */
 #define AN_ADC_MIDPOINT             2048
 
+/** ── A1: W-phase current (ATA6847 op-amp, AD3CH3) ─────────────────
+ *  The W leg is measured through the ATA CSA, NOT the dsPIC OA1/OA2, so it
+ *  has its OWN gain/sign/offset. Bench calibration (2026-07-14, telemetry-only
+ *  A2 build: regress iw_ref = -(focIa+focIb) vs raw Iw over a 34.6k CL run,
+ *  robust LS, R^2 = 0.992 over 511 pts): gain = 0.010233 A/count (0.924x the
+ *  dsPIC scale — must NOT be shared), INVERTED like the dsPIC legs, rest offset
+ *  ~2072 counts. The W leg stayed linear (R^2 >= 0.99) through 84% duty, i.e.
+ *  it is trustworthy exactly where the two-shunt (Iu/Iv) window collapses. */
+#define AN_CURRENT_W_A_PER_COUNT    0.010233f
+#define AN_CURRENT_W_INVERT         1
+#define AN_CURRENT_W_MIDPOINT       2072     /* fallback until IDLE auto-zero */
+
+/** ── DC-bus current display calibration ───────────────────────────
+ *  The displayed Ibus is RECONSTRUCTED from dq power: Idc = 1.5*(vd*id+vq*iq)/Vbus
+ *  (garuda_service.c). Bench 2026-07-14: the reconstruction reads a UNIFORM ~2x
+ *  LOW vs the PSU everywhere -- in OL startup AND in CL, at no load AND under
+ *  load. Since the voltage scale is verified correct (vq=5.15V <-> mod 0.62) and
+ *  the formula faithfully computes the stored vd/vq/id/iq, a uniform 2x low can
+ *  only come from the PHASE-CURRENT scale (id/iq read half true amps). The
+ *  underlying (OPAMP_GAIN 36.36 x SHUNT 2mOhm) product appears 2x too high.
+ *  This gain corrects the Ibus DISPLAY ONLY -- it leaves the tuned current loop
+ *  and the HW over-current comparator untouched (fixing the global scale would
+ *  double the PI error and need a full re-tune + bench re-verify). If a later
+ *  bench pass corrects OPAMP_GAIN/SHUNT globally, set this back to 1.0f. */
+#define AN_IBUS_RECON_GAIN          2.0f
+
+/** ── A1: best-2-of-3 Clarke ───────────────────────────────────────
+ *  At high duty the driven leg's low-side shunt conducts only briefly -> its
+ *  sample window collapses -> its dsPIC current reading goes noisy -> the SMO's
+ *  reconstructed BEMF (hence observer confidence) droops (bench: conf 0.65->0.33
+ *  above ~56k). We now measure ALL three phases, so each tick we DROP whichever
+ *  leg has the largest (most high-side-on) duty and reconstruct it from the
+ *  other two via Kirchhoff (iu+iv+iw=0). The Clarke then only ever consumes
+ *  legs whose shunt window was open.
+ *
+ *  GATED by AN_CLARKE_DUTY_TH: below the threshold every shunt window is wide
+ *  so we keep the PROVEN 2-shunt path (Iu,Iv) byte-for-byte; reconstruction
+ *  engages ONLY on legs above the threshold = exactly the high-duty regime that
+ *  was rough. So low/mid-speed behaviour is unchanged from the 56k build and
+ *  the fix is isolated to where the problem lives. Revert with AN_CLARKE_BEST2OF3 0. */
+#define AN_CLARKE_BEST2OF3          1
+#define AN_CLARKE_DUTY_TH           0.80f    /* engage reconstruction above 80% leg duty */
+
 /** Bus voltage scale (V per ADC count).  V_per_count = Vref·divider/full_scale
  *  = 3.3 × 23.2 / 4095 ≈ 0.01870 V/count. */
 #define AN_VBUS_V_PER_COUNT         0.0104762f /* GarudaESE: 13:1 divider (24k/2k),
@@ -511,6 +554,21 @@ extern "C" {
 #define AN_DECOUPLE_EN              1
 #define AN_DECOUPLE_FRAC           1.0f
 
+/** ── D1: one-sample delay compensation (complex-vector) ───────────
+ *  The vector we compute this tick is not applied until the next PWM update
+ *  (~1-1.5 Ts later: ISR compute + PWM double-buffer). By then the rotor has
+ *  advanced w*dt. Below the current-loop BW (~780 Hz) that lag is negligible,
+ *  but above ~56k eRPM (f_elec > 937 Hz) it becomes real phase error that,
+ *  together with the 0.95 vector clamp, drives a period-2 limit cycle (bench
+ *  2026-07-14: alternate ticks mod 0.6<->0.95, Vbus 16<->21 V, idM +/-6 A).
+ *  Fix: advance the angle used for the inverse Park (i.e. rotate the commanded
+ *  voltage vector forward) by AN_DELAYCOMP_FRAC * w * Ts, so the vector the
+ *  inverter APPLIES lands where the rotor WILL be. FRAC ~1.5 = compute + PWM
+ *  latency in Ts. Scales with w -> zero effect at low speed (proven band
+ *  untouched), grows exactly where the limit cycle lives. Revert with EN 0. */
+#define AN_DELAYCOMP_EN             1
+#define AN_DELAYCOMP_FRAC           1.5f
+
 /** BISECTION 2026-07-10: isolate the OL->CL wedge cause.
  *
  *  Bench (build 0x920BC468, native observer speed now exposed as "st="):
@@ -732,6 +790,24 @@ extern "C" {
 
 /** Maximum voltage vector magnitude as fraction of Vbus.  AN1078: 0.98. */
 #define AN_MAX_VOLTAGE_VECTOR_FRAC  0.95f
+
+/* ── Overmodulation + inner-loop anti-windup (2026-07-14, GarudaESE bench) ──
+ * Above ~56k the U3 drive is voltage-limited: the CL vector is capped at
+ * FRAC * Vbus/sqrt(3), i.e. FRAC of the *linear-region* SVPWM inscribed circle.
+ * D1 (one-sample delay comp) broke the period-2 bounce and reached 64k, but the
+ * duty is now pinned against this ceiling with headroom still wanted toward the
+ * 78.4k physical ceiling (KV700 * 16V * 7pp).  Overmodulation lets the CL vector
+ * reach into the hexagon (six-step edge at FRAC ~= 1.103 = (2/pi)/(1/sqrt(3))),
+ * buying real voltage headroom.  The min-max centered SVPWM + [0,1] duty clamp
+ * already produce the overmodulation flat-top waveform, so ONLY the CL vmax frac
+ * changes; OL/ALIGN keep the linear AN_MAX_VOLTAGE_VECTOR_FRAC (0.95).
+ * Paired with full back-calculation anti-windup on the d/q current PIs so their
+ * integrators don't wind up when the vector saturates against the (now higher)
+ * ceiling on a bus sag -- kills the residual clamp-bounce the user saw at max pot.
+ * Both behind AN_OVERMOD_EN so the proven <=56k behavior is one flag away. */
+#define AN_OVERMOD_EN        1
+#define AN_OVERMOD_FRAC      1.05f   /* CL-only vector frac; 1.0 = linear edge, 1.103 = six-step */
+#define AN_PI_KC_CURRENT     0.0f    /* d/q PI back-calc coeff: 0.0 = full anti-windup */
 
 /** Hard voltage ceiling during standstill LOCK (safety ceiling only).
  *  FOC 2026-07-10: raised 0.15 -> 2.5 now that the current-feedback path is

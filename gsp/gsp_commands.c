@@ -727,11 +727,17 @@ void GSP_TelemTick(void)
     lastTelemTick = now;
     telemSeq++;
 
-    uint8_t buf[2 + sizeof(GSP_SNAPSHOT_T)];
-    buf[0] = (uint8_t)(telemSeq & 0xFF);
-    buf[1] = (uint8_t)(telemSeq >> 8);
-    GSP_CaptureSnapshot((GSP_SNAPSHOT_T *)&buf[2]);
-    GSP_SendResponse(GSP_CMD_TELEM_FRAME, buf, sizeof(buf));
+    /* 2026-07-14: send the snapshot ALONE (no 2-byte seq prefix). The snapshot
+     * is now 254B = the max GSP payload, so a seq prefix would push the frame
+     * past the single-byte LEN limit (256 -> wraps to 0). The host's
+     * read_telem_frame already feeds the whole payload straight to
+     * decode_snapshot (it never stripped a seq), so dropping the prefix both
+     * fixes the overflow and matches the host decoder. Static to keep the 254B
+     * buffer off the stack. */
+    static GSP_SNAPSHOT_T telemSnap;
+    GSP_CaptureSnapshot(&telemSnap);
+    GSP_SendResponse(GSP_CMD_TELEM_FRAME, (const uint8_t *)&telemSnap,
+                     sizeof(telemSnap));
 }
 
 /* ── Burst scope handlers ────────────────────────────────────────────── */

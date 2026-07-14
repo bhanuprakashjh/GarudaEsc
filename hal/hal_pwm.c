@@ -232,13 +232,13 @@ void InitPWMGenerator1(void)
     PG1EVT1bits.SIEN = 0;
     PG1EVT1bits.IEVTSEL = 3;        /* Time base interrupts disabled */
     PG1EVT2bits.ADTR2EN3 = 0;
+    /* 2026-07-14: ADTR2 stays OFF. A 2nd trigger at the ON-center did NOT give a
+     * real bus current — 7-seg center-aligned SVPWM nulls the bus shunt at both
+     * the boundary V0 and the center V7, so no fixed sample point works (see
+     * hal_adc.c AD4CH0). Ibus is reconstructed from phase currents instead. */
     PG1EVT2bits.ADTR2EN2 = 0;
-    /* 2026-07-10 pm: ADTR2EN1 hedge REMOVED. Bench proof it was harmful:
-     * the ADC ISR ran at ~2x PWM rate (isr counter 184k in <2.6 s at 45 kHz)
-     * -> the channel was being DOUBLE-TRIGGERED per cycle, and mid-conversion
-     * retriggering is the prime suspect for the ADC wedge ~15 ms into ALIGN
-     * (conversions stop, all status bits still healthy). TRG1SRC=4 alone is
-     * the proven config (telemetry works). */
+    /* 2026-07-10 pm: ADTR2EN1 hedge REMOVED (TRIGA double-trigger caused the
+     * ADC wedge ~15 ms into ALIGN). TRG1SRC=4 alone is the proven config. */
     PG1EVT2bits.ADTR2EN1 = 0;
     PG1EVT1bits.ADTR1OFS = 0;
 
@@ -336,7 +336,7 @@ void InitPWMGenerator1(void)
 
     PG1TRIGAbits.CAHALF = 0;
     PG1TRIGAbits.TRIGA = ADC_SAMPLING_POINT;
-    PG1TRIGB    = 0x0000;
+    PG1TRIGB    = 0x0000;   /* 2026-07-14: ON-center bus sample reverted — hits the V7 null, see hal_adc.c */
     PG1TRIGC    = 0x0000;
 }
 
