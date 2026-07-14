@@ -16,6 +16,8 @@
 #ifndef GSP_PARAMS_H
 #define GSP_PARAMS_H
 
+#include "../garuda_config.h"   /* FEATURE_AN_STA (guards the STA param block) */
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -92,6 +94,15 @@ extern "C" {
 #define PARAM_ID_AN1078_THETA_K_E7         0x91
 #define PARAM_ID_AN1078_KSLIDE_MV          0x92
 #define PARAM_ID_AN1078_ID_FW_MAX_DECIA    0x93
+
+/* Super-twisting observer live-tune IDs (FEATURE_AN_STA) */
+#define PARAM_ID_STA_K1B_MILLI          0x94
+#define PARAM_ID_STA_K1A_E6             0x95
+#define PARAM_ID_STA_K2B                0x96
+#define PARAM_ID_STA_K2A_E6             0x97
+#define PARAM_ID_STA_WCLAMP_FLOOR_MV    0x98
+#define PARAM_ID_STA_THETA_BASE_DEGX10  0x99
+#define PARAM_ID_STA_THETA_KLAT_E7      0x9A
 
 /* Parameter type codes (for descriptor table) */
 #define PARAM_TYPE_U8   0
@@ -179,6 +190,15 @@ typedef struct {
     uint16_t an1078ThetaKE7;         /* SMC theta offset K × 1e7 — 0-1000 */
     uint16_t an1078KslideMv;         /* SMC sliding gain × 1000 (mV) — 100-30000 */
     uint16_t an1078IdFwMaxDecia;     /* |Id_fw_max| × 10 (dA) — 0-200, sign forced negative */
+#if FEATURE_AN_STA
+    uint16_t staK1bMilli;        /* STA k1 base × 1000            — 0-60000 */
+    uint16_t staK1aE6;           /* STA k1 speed-slope × 1e6      — 0-60000 */
+    uint16_t staK2b;             /* STA k2 base (1:1)             — 0-60000 */
+    uint16_t staK2aE6;           /* STA k2 ω²-slope × 1e6         — 0-60000 */
+    uint16_t staWClampFloorMv;   /* STA anti-windup floor × 1000 (mV)-0-30000*/
+    uint16_t staThetaBaseDegX10; /* STA residual const offset ×10 (deg)-0-3600*/
+    uint16_t staThetaKlatE7;     /* STA residual ω-slope × 1e7    — 0-2000  */
+#endif
     /* I-f spin-up (FEATURE_IF_STARTUP) — appended at end (no layout shift above) */
     uint16_t ifCurrentCa;            /* I-f forced current × 100 (cA) — the spin-up cap */
     uint16_t ifRampErpmPerS;         /* I-f open-loop accel (eRPM/s) — rotor-follow knob */

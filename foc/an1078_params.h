@@ -941,6 +941,16 @@ extern "C" {
 /* Backwards-compat alias for code that hardcodes a single constant. */
 #define AN_SMC_THETA_OFFSET         AN_SMC_THETA_OFFSET_BASE
 
+/* ── Super-twisting observer seeds (FEATURE_AN_STA) — spec §5.4 ──────
+ * Fixed-gain bring-up values for U3 (λ=1.125e-3 V·s/rad, E_max≈9 V @
+ * 8000 rad/s). k2·Ts=4000·22.2µs=0.089 < 0.05·E_max=0.45 (discretization
+ * safe). Tune on the bench; these are the 0→default fallbacks for the
+ * live GSP params. */
+#define AN_STA_K1B_DEFAULT           2.0f      /* z = k1·√|s| damping   */
+#define AN_STA_K2B_DEFAULT           4000.0f   /* w ramp rate (V/s)     */
+#define AN_STA_WCLAMP_FLOOR_DEFAULT  2.0f      /* anti-windup floor (V) */
+#define AN_STA_THETAKLAT_DEFAULT     2.22e-5f  /* PLL discretization ≈1·Ts */
+
 /** BEMF LPF coefficient scale factor (per |ω| in rad/s electrical).
  *
  * AN1078 default: AN_TS (1·Ts).  Earlier 3·Ts gave better low-speed

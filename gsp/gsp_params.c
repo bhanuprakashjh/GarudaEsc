@@ -594,6 +594,15 @@ static const PARAM_DESCRIPTOR_T paramDescriptors[] = {
     { PARAM_ID_AN1078_THETA_K_E7,        PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 1000,  offsetof(GSP_PARAMS_T, an1078ThetaKE7),        2 },
     { PARAM_ID_AN1078_KSLIDE_MV,         PARAM_TYPE_U16, PARAM_GROUP_AN1078,  100, 30000, offsetof(GSP_PARAMS_T, an1078KslideMv),        2 },
     { PARAM_ID_AN1078_ID_FW_MAX_DECIA,   PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 200,   offsetof(GSP_PARAMS_T, an1078IdFwMaxDecia),    2 },
+#if FEATURE_AN_STA
+    { PARAM_ID_STA_K1B_MILLI,         PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, staK1bMilli),        2 },
+    { PARAM_ID_STA_K1A_E6,            PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, staK1aE6),           2 },
+    { PARAM_ID_STA_K2B,               PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, staK2b),             2 },
+    { PARAM_ID_STA_K2A_E6,            PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, staK2aE6),           2 },
+    { PARAM_ID_STA_WCLAMP_FLOOR_MV,   PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 30000, offsetof(GSP_PARAMS_T, staWClampFloorMv),   2 },
+    { PARAM_ID_STA_THETA_BASE_DEGX10, PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 3600,  offsetof(GSP_PARAMS_T, staThetaBaseDegX10), 2 },
+    { PARAM_ID_STA_THETA_KLAT_E7,     PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 2000,  offsetof(GSP_PARAMS_T, staThetaKlatE7),     2 },
+#endif
 };
 
 #define PARAM_COUNT (sizeof(paramDescriptors) / sizeof(paramDescriptors[0]))
