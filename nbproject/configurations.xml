@@ -85,7 +85,6 @@
                    projectFiles="true">
       <itemPath>foc/an1078_motor.c</itemPath>
       <itemPath>foc/an1078_smc.c</itemPath>
-      <itemPath>foc/an1078_sta.c</itemPath>
       <itemPath>foc/back_emf_obs.c</itemPath>
       <itemPath>foc/clarke.c</itemPath>
       <itemPath>foc/flux_estimator.c</itemPath>

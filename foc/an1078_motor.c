@@ -1123,3 +1123,16 @@ void AN_MotorFastTick(AN_Motor_T *m,
     m->db_prev = *db;
     m->dc_prev = *dc;
 }
+
+/* ── Super-twisting observer (FEATURE_AN_STA) ─────────────────────────
+ * Unity-include of the STA implementation into this (always-compiled) TU.
+ * an1078_sta.c is a self-contained file — kept standalone for readability
+ * and for the host unit test (test/host/test_an_sta_core.c includes it
+ * directly) — but it is NOT registered as its own MPLAB build item, so it
+ * is compiled here instead. The whole file is #if FEATURE_AN_STA-guarded,
+ * so at flag=0 this include expands to nothing and the default build stays
+ * byte-identical. Must be the ONLY place the firmware compiles it (no
+ * separate TU) to avoid a double-definition link error. */
+#if FEATURE_AN_STA
+#include "an1078_sta.c"
+#endif
