@@ -261,6 +261,16 @@
  *  artificial clipping while still catching runaway. */
 #define MOTOR_MAX_ELEC_RAD_S    25000.0f    /* ~239k eRPM */
 #define MOTOR_FLUX_LINKAGE      0.000583f
+/** PLL speed-estimate clamp (rad/s elec) — decoupled from MOTOR_MAX_ELEC_RAD_S
+ *  (which also sets throttle scale + OL max, so it can't be lowered).
+ *  MOTOR_MAX_ELEC_RAD_S=25000 (≈239k eRPM) is a legacy 2810@24V figure; the
+ *  real U3@16V ceiling is ~8.1k rad/s (~77k eRPM). With the clamp 3.3× above
+ *  anything physical, a momentary observer loss-of-lock at the no-load handoff
+ *  let the fast PLL integrator (KI=98600) wind up unopposed to the 25000 rail
+ *  = the phantom 238,732 eRPM / 100%-duty / mod-1.05 runaway. Bound it to
+ *  ~1.24× the real peak so a lost lock stays near real speed and can re-acquire
+ *  instead of latching a phantom. */
+#define PLL_MAX_ELEC_RAD_S      10000.0f    /* ~95.5k eRPM */
 
 /* D/Q Current Loop PI — recomputed 2026-04-23 from corrected Rs/Ls.
  *   Kp = ωbw × Ls = 2π × 1000 × 10 µH = 0.063
@@ -550,8 +560,14 @@
  *   Microchip reference uses ~55 Hz velocity filter (similar BW). */
 #define PLL_KP                  628.0f
 #define PLL_KI                  98600.0f
-/** PLL output speed clamp (rad/s elec.) */
-#define PLL_SPEED_CLAMP         MOTOR_MAX_ELEC_RAD_S
+/** PLL output speed clamp (rad/s elec.). Defaults to MOTOR_MAX_ELEC_RAD_S so
+ *  profiles that don't override keep their prior value byte-identical; a profile
+ *  may define PLL_MAX_ELEC_RAD_S to bound runaway below the (often oversized)
+ *  MOTOR_MAX_ELEC_RAD_S. See the PLL_MAX_ELEC_RAD_S note in the profile block. */
+#ifndef PLL_MAX_ELEC_RAD_S
+#define PLL_MAX_ELEC_RAD_S      MOTOR_MAX_ELEC_RAD_S
+#endif
+#define PLL_SPEED_CLAMP         PLL_MAX_ELEC_RAD_S
 /** PLL angle offset (rad): BEMF leads rotor by pi/2.
  *  Subtract pi/2 to get rotor angle for Park/InvPark. */
 #define PLL_ANGLE_OFFSET        1.5707963f   /* pi/2 = 90 deg */

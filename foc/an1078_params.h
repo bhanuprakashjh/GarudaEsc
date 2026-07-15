@@ -455,6 +455,16 @@ extern "C" {
  *  short dwell is fine.  100 ms = 2400 ticks at 24 kHz. */
 #define AN_HANDOFF_DWELL_TICKS      2400U
 
+/** STA handoff speed-gate LPF coefficient (2026-07-15, FEATURE_AN_STA only).
+ *  The super-twisting z is unfiltered, so pll.omega_est = d(theta)/dt jitters
+ *  ~+-12% at the plateau even though its MEAN tracks the forced speed and the
+ *  angle is stable (bench lk= readout). That derivative noise perpetually
+ *  resets the 5%/53ms speed dwell. LPF pll.omega_est before the gate compares
+ *  it: coef 0.02 ~= 50-tick (1.1 ms) time constant smooths +-12% -> ~+-2%,
+ *  inside the 5% band, while settling far faster than the 53 ms dwell. The
+ *  boundary observer's z is already LPF'd, so this is STA-only. */
+#define AN_HANDOFF_OMEGA_FILT_COEF  0.02f
+
 /** Handoff SPEED-CONVERGENCE gate (2026-07-10). The BEMF-magnitude gate only
  *  proves BEMF is PRESENT (conf=1.0), NOT that the observer's speed/angle has
  *  converged to the real rotor. Bench: at handoff the observer OmegaFltred read

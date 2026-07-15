@@ -30,6 +30,16 @@ void pll_update(PLL_t *pll, float e_alpha, float e_beta, float Ts)
 
     /* PI loop filter: omega_hat = Kp*epsilon + Ki*integral(epsilon) dt */
     pll->integrator += PLL_KI * Ts * error;
+
+    /* Anti-windup: bound the integral state, not just the summed output.
+     * Near lock integrator ≈ omega_est (Kp·error is small), so this never
+     * bites in normal operation. During a loss-of-lock the integrator would
+     * otherwise wind far past the clamp while omega sits pinned at the rail,
+     * delaying re-acquisition until it unwinds back through the error. Bounding
+     * it here lets the PLL re-lock promptly once real BEMF returns. */
+    if (pll->integrator >  PLL_SPEED_CLAMP) pll->integrator =  PLL_SPEED_CLAMP;
+    if (pll->integrator < -PLL_SPEED_CLAMP) pll->integrator = -PLL_SPEED_CLAMP;
+
     float omega = PLL_KP * error + pll->integrator;
 
     /* Clamp speed estimate to physical limit */

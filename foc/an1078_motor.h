@@ -71,6 +71,10 @@ typedef struct {
     float    thetaError;        /* (thetaOL - smc.Theta) at handoff, bleeds in CL */
     uint16_t transCounter;      /* paces theta_error bleed (mod TRANSITION_STEPS) */
     uint32_t handoff_dwell;     /* consecutive ticks BEMF mag has been above gate */
+    uint32_t handoff_settle;    /* countdown ticks: speed-PI iqRef is capped while >0 */
+#if FEATURE_AN_STA
+    float    pllOmegaGateFlt;   /* LPF of pll.omega_est for the STA handoff speed gate */
+#endif
 
     /* References */
     float velRef_rad_s;         /* speed reference in CL (rad/s electrical) */

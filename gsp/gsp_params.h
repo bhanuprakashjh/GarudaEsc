@@ -104,6 +104,10 @@ extern "C" {
 #define PARAM_ID_STA_THETA_BASE_DEGX10  0x99
 #define PARAM_ID_STA_THETA_KLAT_E7      0x9A
 
+/* OL→CL handoff settling-window iqRef clamp (both observers). RAM-only. */
+#define PARAM_ID_HANDOFF_SETTLE_TICKS   0xB0
+#define PARAM_ID_HANDOFF_IQ_CAP_CA      0xB1
+
 /* Parameter type codes (for descriptor table) */
 #define PARAM_TYPE_U8   0
 #define PARAM_TYPE_U16  1
@@ -202,6 +206,11 @@ typedef struct {
     /* I-f spin-up (FEATURE_IF_STARTUP) — appended at end (no layout shift above) */
     uint16_t ifCurrentCa;            /* I-f forced current × 100 (cA) — the spin-up cap */
     uint16_t ifRampErpmPerS;         /* I-f open-loop accel (eRPM/s) — rotor-follow knob */
+    /* OL→CL handoff settling-window iqRef clamp — leashes the speed PI for a
+     * short window after handoff so a post-commit speed dip cannot wind iqRef
+     * into the fast-OC (esp. no-load / low-inertia). RAM-only, live-tunable. */
+    uint16_t handoffSettleTicks;     /* CL window after OL→CL commit (ISR ticks); 0 = OFF */
+    uint16_t handoffIqCapCa;         /* iqRef cap during that window × 100 (cA, true A) */
 } GSP_PARAMS_T;
 
 /* ── Derived values (precomputed from params, ISR reads these) ───────── */

@@ -56,7 +56,22 @@ static uint8_t activeProfile;
     .morphLockZcCount     = 4,  \
     .morphLockTolPct      = 25,  \
     .ifCurrentCa          = 600, \
-    .ifRampErpmPerS       = 12000
+    .ifRampErpmPerS       = 12000, \
+    /* OL→CL handoff settling window: motor-only leash on the speed PI while the
+     * observer relocks. 2026-07-15 with-prop sweep proved the handoff is a race
+     * decided at the commit instant: a clean lock holds forever (iqRef pins
+     * ~4.6 A), a bad lock makes the fresh-CL observer read speed HIGH → the PI
+     * commands NEGATIVE iq (braking) → speed sags → BEMF weakens → observer
+     * stays lost → deeper brake, a collapse that ~half the time ends in the
+     * 27.3 A fast-OC.  A symmetric ±cap clamp can't stop it (still permits
+     * braking); neither longer windows (25000 ticks was WORSE) nor cap tweaks
+     * helped.  Fix is the clamp SHAPE, in an1078_motor.c: during this window the
+     * PI may only motor (floor 0 … +iqCap), never brake, so the collapse can't
+     * start.  Window ~500 ms spans the relock; cap 8.0 A gives recovery torque
+     * headroom over the ~4.6 A hold, well under OC.  Live-tunable; ticks=0
+     * disables (immediate full ±authority). */ \
+    .handoffSettleTicks   = 22500, \
+    .handoffIqCapCa       = 800
 
 static const GSP_PARAMS_T profileDefaults[7] = {
     [GSP_PROFILE_HURST] = {
@@ -298,6 +313,16 @@ static const GSP_PARAMS_T profileDefaults[7] = {
                                          * through the whole 42k->76k climb. Paired
                                          * with focMaxElecRadS=8000 to reach the ceiling. */
         .an1078IdFwMaxDecia    = 120,
+#if FEATURE_AN_STA
+        /* Super-twisting observer (FEATURE_AN_STA) — bench-validated handoff
+         * config baked so it survives power-cycle (these RAM params otherwise
+         * wipe to 0 every boot). Only the two knobs that need a non-zero value
+         * are set; the rest intentionally stay 0 -> their in-code compile
+         * fallbacks (k2b->4000, wClamp->2.0, klat->2.22e-5, k1a/k2a slopes off). */
+        .staK1bMilli           = 500,   /* k1 base = 0.5 (low-noise; 0 falls back to the noisy 2.0) */
+        .staThetaBaseDegX10    = 3240,  /* 324deg = -36deg, nulls the observer LPF lag at handoff.
+                                         * NOTE 0 here is a LITERAL 0deg (no fallback) -> gate blocks. */
+#endif
     },
     [GSP_PROFILE_5055] = {
         .rampTargetErpm     = 2000,
@@ -594,6 +619,9 @@ static const PARAM_DESCRIPTOR_T paramDescriptors[] = {
     { PARAM_ID_AN1078_THETA_K_E7,        PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 1000,  offsetof(GSP_PARAMS_T, an1078ThetaKE7),        2 },
     { PARAM_ID_AN1078_KSLIDE_MV,         PARAM_TYPE_U16, PARAM_GROUP_AN1078,  100, 30000, offsetof(GSP_PARAMS_T, an1078KslideMv),        2 },
     { PARAM_ID_AN1078_ID_FW_MAX_DECIA,   PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 200,   offsetof(GSP_PARAMS_T, an1078IdFwMaxDecia),    2 },
+    /* OL→CL handoff settling-window iqRef clamp (both observers, live-tunable) */
+    { PARAM_ID_HANDOFF_SETTLE_TICKS,     PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, handoffSettleTicks),    2 },
+    { PARAM_ID_HANDOFF_IQ_CAP_CA,        PARAM_TYPE_U16, PARAM_GROUP_AN1078,  100, 3000,  offsetof(GSP_PARAMS_T, handoffIqCapCa),        2 },
 #if FEATURE_AN_STA
     { PARAM_ID_STA_K1B_MILLI,         PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, staK1bMilli),        2 },
     { PARAM_ID_STA_K1A_E6,            PARAM_TYPE_U16, PARAM_GROUP_AN1078,    0, 60000, offsetof(GSP_PARAMS_T, staK1aE6),           2 },

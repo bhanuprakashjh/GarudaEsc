@@ -2711,7 +2711,7 @@ void __attribute__((__interrupt__, no_auto_psv)) GARUDA_ADC_INTERRUPT(void)
          * warmup; these tell us whether the engine is being restart-cycled.
          *   focObsGain   := startupLock (was smc.Kslf)
          *   focLambdaEst := I-vs-drive frame angle in degrees (see block above) */
-        garudaData.focObsGain     = s_foc_an.ib_offset;   /* 2026-07-11 CHANNEL-CHECK: lk= = OA2 (Iv) offset; revert: = (float)s_foc_an.startupLock */
+        garudaData.focObsGain     = s_foc_an.smc.pll.omega_est * 9.5493f;   /* 2026-07-15 STA GATE-2 DIAG: lk= = observer PLL speed (eRPM); handoff gate needs this within 5% of forced eRPM. revert: = s_foc_an.ib_offset */
         garudaData.focPidDInteg   = s_foc_an.pi_d.integrator;
         garudaData.focPidQInteg   = s_foc_an.pi_q.integrator;
         garudaData.focPidSpdInteg = s_foc_an.pi_spd.integrator;

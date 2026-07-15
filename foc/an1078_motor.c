@@ -247,6 +247,10 @@ static void an_reset_parameters(AN_Motor_T *m)
     m->thetaError = 0.0f;
     m->transCounter = 0;
     m->handoff_dwell = 0;
+    m->handoff_settle = 0;
+#if FEATURE_AN_STA
+    m->pllOmegaGateFlt = 0.0f;
+#endif
 
     /* Reset speed-ramp pacing */
     m->speedRampCount = AN_SPEEDREFRAMP_COUNT;
@@ -531,6 +535,38 @@ static void an_do_control(AN_Motor_T *m, float dt)
             m->id_ref_fw       = 0.0f;
         }
 
+        /* ── OL→CL handoff settling-window iqRef clamp ──────────────────
+         * At the commit the observer PLL angle briefly lags the true rotor
+         * and, freshly closed-loop, OmegaFltred transiently reads ABOVE velRef
+         * (the motor is at END_SPEED with throttle=0, so velRef ~ END_SPEED and
+         * there is no real decel demand).  The speed PI reads that as err<0 and
+         * commands NEGATIVE iq — braking torque — which sags the real speed,
+         * which keeps the lagging observer confused, which brakes harder: a
+         * positive-feedback collapse on the braking side.  2026-07-15 with-prop
+         * bench proved this is the dominant failure: iqRef swung to −14 A on
+         * deep-but-surviving dips and −59→−248 A on the runs that lost PLL lock
+         * → 27 A fast-OC.  A *symmetric* ±iq_cap clamp is the wrong shape: it
+         * still permits braking down to −iq_cap, and shrinking the cap only
+         * weakens the MOTORING recovery so the dip goes DEEPER (→~7.9k eRPM).
+         * Fix = clamp the SHAPE, not just the magnitude: during the window the
+         * speed PI may only motor (floor at 0, ceil at iq_cap) — it can add
+         * current to hold speed but can never brake — so the collapse loop
+         * cannot start.  Strong BEMF at speed lets the PLL relock, then full
+         * ±AN_OVER_CURRENT_LIMIT authority is restored.  Both knobs live-tunable
+         * (RAM params); handoffSettleTicks == 0 disables (full authority). */
+        if (firstCLtick) {
+            m->handoff_settle = gspParams.handoffSettleTicks;
+        }
+        if (m->handoff_settle > 0u) {
+            float iq_cap = (float)gspParams.handoffIqCapCa * 0.01f;   /* cA → A */
+            m->pi_spd.outMax =  iq_cap;
+            m->pi_spd.outMin =  0.0f;   /* no braking while the observer relocks */
+            m->handoff_settle--;
+        } else {
+            m->pi_spd.outMax =  AN_OVER_CURRENT_LIMIT;
+            m->pi_spd.outMin = -AN_OVER_CURRENT_LIMIT;
+        }
+
         /* Speed PI → Iq ref.  Feedback from observer's REAL Omega. */
         float iq_ref = an_pi_run(&m->pi_spd,
                                  m->velRef_rad_s,
@@ -788,7 +824,18 @@ static void an_calc_park_angle(AN_Motor_T *m)
              * was ALWAYS 0 -> speed_converged ALWAYS true -> the gate was a
              * structural no-op and never blocked a bad handoff.  Read the
              * observer's NATIVE, un-clobbered PLL speed instead. */
+#if FEATURE_AN_STA
+            /* STA: pll.omega_est = d(theta)/dt on the UNFILTERED super-twisting
+             * z jitters ~+-12% even though its mean tracks the forced speed and
+             * the angle is stable (bench lk= readout 2026-07-15). LPF it before
+             * the 5% gate so speed-derivative noise doesn't perpetually reset the
+             * dwell. Boundary observer keeps the raw path (its z is already LPF'd). */
+            m->pllOmegaGateFlt += AN_HANDOFF_OMEGA_FILT_COEF
+                                * (m->smc.pll.omega_est - m->pllOmegaGateFlt);
+            float omega_err = m->pllOmegaGateFlt - m->startupRamp;
+#else
             float omega_err = m->smc.pll.omega_est - m->startupRamp;
+#endif
             if (omega_err < 0.0f) omega_err = -omega_err;
             int speed_converged = (m->startupRamp > 1.0f)
                 && (omega_err < AN_HANDOFF_SPEED_TOL_FRAC * m->startupRamp);
