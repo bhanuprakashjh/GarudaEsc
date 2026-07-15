@@ -31,6 +31,37 @@ This project is a **port**, assembled from two proven code bases:
 - Device retargeted to dsPIC33AK256MC506 in `nbproject/configurations.xml`.
 - UART debug from the ATA driver stubbed (no second UART1 driver; GSP owns UART1).
 
-## Build
-Toolchain: **XC-DSC** (dsPIC33A family), DFP `dsPIC33AK-MC_DFP`. Open in MPLAB X.
-> The `nbproject` file list still reflects the ata-esc skeleton — on first open, use *Add Existing Items* to add the `gsp/ motor/ hal/ learn/ input/ scope/ x2cscope/` sources, or regenerate the project around this source tree. See **INTEGRATION_TODO.md** for the remaining board-bring-up work (the ADC channel remap is the main one).
+## Building from source (MPLAB X)
+
+Everything needed to reproduce the build is committed **except** the two
+per-machine path files, which MPLAB regenerates for you on first open. Do not
+commit those back — they hardcode one machine's absolute toolchain paths and
+would break every other clone.
+
+**Prerequisites (exact versions this firmware is built with):**
+
+| Component | Version | Notes |
+|---|---|---|
+| MPLAB X IDE | v6.30 (or newer) | |
+| MPLAB XC-DSC compiler | **v3.30** | dsPIC33A family toolchain |
+| Device Family Pack | `dsPIC33AK-MC_DFP` **v1.4.172** | Microchip — install via Tools → Packs |
+| Target device | **dsPIC33AK256MC506** | set in `nbproject/configurations.xml` |
+| Programmer / debugger | PICkit 5 (`PK5Tool`) | any supported tool works |
+
+**Steps:**
+
+1. `git clone https://github.com/bhanuprakashjh/GarudaEsc.git`
+2. In MPLAB X: **File → Open Project** and select the cloned folder.
+3. If MPLAB flags a missing toolchain/pack, install **XC-DSC 3.30** and the
+   **dsPIC33AK-MC_DFP 1.4.172** pack (Tools → Packs), then reopen.
+4. Build (Production build / hammer). Output HEX lands in `dist/…/production/`.
+
+On first open MPLAB generates the machine-specific
+`nbproject/Makefile-genesis.properties` and `Makefile-local-default.mk` for
+your toolchain/pack locations. These are **intentionally git-ignored**; the
+portable project definition (device, toolchain version, pack, file list) lives
+in `nbproject/configurations.xml` and `nbproject/project.xml`.
+
+> **Motor profile:** the active motor is selected at compile time by
+> `MOTOR_PROFILE` in `garuda_config.h` (default `2` = T-Motor U3 KV700). Per-motor
+> electrical constants live in `motors.h`; only the U3 profile is bench-validated.

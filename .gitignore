@@ -13,3 +13,11 @@ debug/
 
 # MPLAB per-user state
 nbproject/private/
+
+# MPLAB machine-local generated paths — regenerated per-machine when the
+# project is opened. Committing them would hardcode ONE machine's absolute
+# toolchain/DFP/proj paths (e.g. /media/<user>/MPLABX/...) and break every
+# clone. The portable project spec is in configurations.xml + project.xml;
+# the exact toolchain/pack versions are documented in the README build section.
+nbproject/Makefile-genesis.properties
+nbproject/Makefile-local-*.mk
