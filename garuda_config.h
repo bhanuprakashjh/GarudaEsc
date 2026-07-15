@@ -254,7 +254,7 @@ extern "C" {
                                      * PRE-OC-fix AN1078; the flagship's align-OC fixes (720dfb5 phase-
                                      * current gain 3.006x, cde35a2 phase-current OC) are NOT in this
                                      * tree yet. 2026-05-25: switched to 6-step. Flip to 0 for 6-step. */
-#define FEATURE_AN_STA            1  /* 2026-07-14 Super-twisting SMO A/B (spec docs/superpowers/specs/2026-07-14-an-sta-observer-design.md). Compile-time; default 0 = shipped boundary AN1078 observer. Flip to 1 to build the STA race variant; all STA code is #if-guarded so 0 is byte-identical. */
+#define FEATURE_AN_STA            0  /* 2026-07-14 Super-twisting SMO A/B (spec docs/superpowers/specs/2026-07-14-an-sta-observer-design.md). Compile-time; default 0 = shipped boundary AN1078 observer. Flip to 1 to build the STA race variant; all STA code is #if-guarded so 0 is byte-identical. */
 #define FEATURE_SMO              0  /* 0=PLL only, 1=PLL+SMO parallel (v1 only) */
 #define FEATURE_MXLEMMING        0  /* 0=PLL chain, 1=MXLEMMING flux observer (v1 only) */
 #define FEATURE_LEARN_MODULES    0  /* master: ring buffer + quality + health */
@@ -364,7 +364,7 @@ extern "C" {
  * Motor Profile Selection
  * 0 = Hurst DMB2424B10002 (long Hurst, 10-pole 5PP, 24V bench motor)
  * 1 = A2212 1400KV (14-pole 7PP, 12V drone motor)
- * 2 = 2810 1350KV (14-pole 7PP, 5-6S drone motor, ~226k eRPM ceiling at 24V)
+ * 2 = T-Motor U3 KV700 (14-pole 7PP, 16V bench motor, ~78k eRPM ceiling at 16V) [slot was labelled "2810/5010"; retuned to U3]
  * 3 = 5055 ~580KV (14-pole 7PP, 4S, 0.05 ohm L-N, 17.5 uH L-N)
  * 4 = Cobra CM-2814/36 470KV (12N14P 7PP, 4-6S, 0.188Ω pp, 117g — high-R/heavy)
  * 5 = Hobbywing XRotor 3110 1150KV (12N14P 7PP, 4-6S, 0.045Ω pp, 88g — ~2810)
@@ -372,7 +372,7 @@ extern "C" {
  * All motor-dependent parameters are grouped here for easy swapping.
  * Board-specific and feature-tuning parameters are below.
  *──────────────────────────────────────────────────────────────────────────*/
-#define MOTOR_PROFILE  2   /* 2 = 2810 (bench baseline). 4 = Cobra, 5 = XRotor, 6 = VEX 4000KV micro. */
+#define MOTOR_PROFILE  2   /* 2 = U3 KV700 (bench baseline). 4 = Cobra, 5 = XRotor, 6 = VEX 4000KV micro. */
 
 #if MOTOR_PROFILE == 0
 /* === Hurst DMB2424B10002 (long Hurst, MCLV-48V-300W bench motor) ===

@@ -266,7 +266,8 @@ typedef enum {
 /* Motor profile IDs */
 #define GSP_PROFILE_HURST   0
 #define GSP_PROFILE_A2212   1
-#define GSP_PROFILE_5010    2
+#define GSP_PROFILE_U3      2  /* T-Motor U3 KV700 (14-pole 7PP). Slot value stays 2 for EEPROM/profile-id compat; the old GSP_PROFILE_5010 name is aliased below. */
+#define GSP_PROFILE_5010    GSP_PROFILE_U3  /* deprecated alias — the slot has always carried U3 data, never Flycat 5010 */
 #define GSP_PROFILE_5055    3
 #define GSP_PROFILE_COBRA   4  /* Cobra CM-2814/36 470KV (12N14P, 7PP, heavy, high-R) */
 #define GSP_PROFILE_XROTOR  5  /* Hobbywing XRotor 3110 1150KV (12N14P, 7PP, ~2810 regime) */

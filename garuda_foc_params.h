@@ -233,10 +233,17 @@
 
 #elif MOTOR_PROFILE == 2
 /* ----------------------------------------------------------------
+ * ⚠ DIVERGENCE: this block still describes the legacy 2810 1350KV and
+ * feeds only the INACTIVE 6-step FOC (foc_v2/v3) path. The LIVE bench
+ * motor on profile 2 is the T-Motor U3 KV700 — its authoritative
+ * primitives now live in motors.h (M_* for MOTOR_PROFILE==2:
+ * Rs 0.025Ω / Ls 18µH / λ 0.001125). The active AN1078 observer already
+ * reads motors.h. To retire this divergence, replace the four constants
+ * below with the M_* macros (M_RS_OHM etc.) once the 6-step path is
+ * re-bench-verified on U3 — see motors.h header note.
+ *
  * 2810 1350 KV — 6S LiPo / 24 V bench, no prop
  * 12N14P, 7 pole pairs, Rs=50 mΩ, Ls=25 µH.
- * Parameters match garuda_config.h Profile 2.
- * Bench: 24 V supply, 10 A current limit, no prop loading.
  * GEPRC EM2810 / T-Motor F100 / BrotherHobby Avenger 2810 range.
  * (Replaces earlier "Flycat 5010 750KV @14.8V" profile 2026-04-23.)
  * ---------------------------------------------------------------- */

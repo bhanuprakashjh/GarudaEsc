@@ -166,16 +166,18 @@ static const GSP_PARAMS_T profileDefaults[7] = {
         .an1078KslideMv        = 4000,  /* 4 V */
         .an1078IdFwMaxDecia    = 0,     /* No FW */
     },
-    [GSP_PROFILE_5010] = {
-        /* === 2810 1350KV (7-8" FPV/cine drone motor, 24V bench) ===
-         * Motor data from PATA6847/CK board project (garuda_6step_ck.X,
-         * MOTOR_PROFILE=2). 12N14P, 7PP, 5-6S LiPo (18.5-25.2V), Rs~50mΩ,
-         * Ls~25µH. At 24V: no-load eRPM ceiling = 1350*24*7 = 226.8k.
-         * Target: 200k eRPM bench no-prop.
+    [GSP_PROFILE_U3] = {
+        /* === T-Motor U3 KV700 (14-pole 7PP) — 16 V bench, sensorless FOC ===
+         * This slot is the U3 KV700, the current bench motor. It carries the
+         * baked working AN1078/STA config (Rs=25mΩ, Ls~25µH, λ=1125, ThetaBase
+         * 3450, handoff leash 22500/8A). At 16V the no-load eRPM ceiling is
+         * ~700*16*7 ≈ 78.4k; bench-proven hold ~76k no-prop (2026-07-15).
          *
-         * Slot name is still GSP_PROFILE_5010 for EEPROM/profile-id
-         * compatibility; actual motor is 2810 here (AKESC's original
-         * 5010 data is in PATA comments/backup). */
+         * Slot VALUE stays 2 for EEPROM/profile-id compatibility; the old
+         * GSP_PROFILE_5010 identifier is a deprecated alias (gsp_params.h).
+         * NOTE: some of the 6-step-era knobs below still carry 2810/24V
+         * comments — the FOC path (FEATURE_FOC_AN1078) does not read those;
+         * the live FOC tune lives in an1078_params.h + the STA fields here. */
         .rampTargetErpm     = 3000,    /* Reliable OL ramp endpoint on 2810 at 24V.
                                         * The iron is the ceiling, not the accel: low-L
                                         * (25µH)/low-Rs(50mΩ) 2810 can't be open-loop-

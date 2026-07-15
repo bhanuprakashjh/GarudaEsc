@@ -19,6 +19,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include "../motors.h"   /* M_* per-motor primitives (single source of truth) */
 
 /* ── Hardware references (mirror of garuda_foc_params.h, kept local
  *    to AN1078 module so it can be tuned independently) ─────────── */
@@ -158,28 +159,27 @@ extern "C" {
  *  filtering/less lag. This is what makes observer-angle drive stable on MCLV. */
 #define AN_OMEGA_FILT_COEF          0.05f
 
-/* ── Motor (PRODRONE 2810 1350KV @ 24V) ─────────────────────────
+/* ── Motor electrical model — sourced per-profile from motors.h ─────────
  *
- * Switched back from A2212@12V on 2026-04-27.
- *
- * 2810 specs:
- *   KV = 1350 RPM/V, 7 PP, Rs ≈ 22 mΩ, Ls ≈ 10 µH
- *   λ = 60 / (√3·2π·1350·7) = 0.000583 V·s/rad
- *   No-load max @ 24V = 24 / 0.000583 = 41200 rad/s elec ≈ 393k eRPM
- *   Practical max with FW + observer headroom: ~210k eRPM (validated
- *   2026-04-25, see an1078_200k_milestone memory note). */
+ * These four primitives come from the MOTOR_PROFILE-selected block in
+ * motors.h (M_POLE_PAIRS / M_RS_OHM / M_LS_H / M_FLUX_LINKAGE), so the
+ * observer's physical model tracks whichever motor is built. For the
+ * bench baseline (profile 2 = U3 KV700) the values are 7 / 0.025 Ω /
+ * 18 µH / 0.001125 V·s·rad⁻¹ — identical to the hand-coded U3 constants
+ * that lived here before, so the U3 build is byte-identical. Other
+ * profiles get their own physics-seeded values (see motors.h). */
 
-#define AN_NOPOLESPAIRS             7                /* 7 PP (14 magnets) */
+#define AN_NOPOLESPAIRS             M_POLE_PAIRS
 
-/** Phase-to-neutral resistance (Ω).  Measured ~22 mΩ. */
-#define AN_MOTOR_RS                 0.025f   /* 2026-07-09 U3 KV700: datasheet Rm=50mΩ (phase-phase) /2 = 25mΩ per-phase. Was 0.022 (2810). */
+/** Phase-to-neutral resistance (Ω). */
+#define AN_MOTOR_RS                 M_RS_OHM
 
-/** Phase-to-neutral inductance (H).  Measured ~10 µH. */
-#define AN_MOTOR_LS                 18e-6f   /* 2026-07-09 U3 KV700: datasheet omits L; 18µH from the 5055 ~580KV sibling (profile 3, same 12N14P/7PP class). Was 10e-6 (2810). Feeds AN_F_PLANT/AN_G_PLANT below. */
+/** Phase-to-neutral inductance (H).  Feeds AN_F_PLANT/AN_G_PLANT below. */
+#define AN_MOTOR_LS                 M_LS_H
 
-/** Per-phase peak flux linkage λ (V·s/rad_electrical).  λ = 60 / (√3·2π·KV·PP)
- *  for 1350 KV @ 7PP gives 0.000583. */
-#define AN_MOTOR_LAMBDA             0.001125f
+/** Per-phase peak flux linkage λ (V·s/rad_electrical).
+ *  λ = 60 / (√3·2π·KV·PP). */
+#define AN_MOTOR_LAMBDA             M_FLUX_LINKAGE
 
 /** Discrete plant pole F = 1 - Rs·Ts/Ls.
  *  2810: 1 - 0.022 × 41.67e-6 / 10e-6 = 0.908.  Stable (must be 0..1). */
